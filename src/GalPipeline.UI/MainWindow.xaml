@@ -11,8 +11,8 @@
     <!--
         数据模板刻意使用经典 {Binding} + INPC（条目 VM），而非 x:Bind：
         WinAppSDK 2.x 的 XamlCompiler 在 dotnet CLI + 非英文区域下对
-        DataTemplate 内 x:Bind 存在内部崩溃（WMC9999 掩码），页面级
-        x:Bind 不受影响。规避决策记录于此。
+        DataTemplate 内 x:Bind 及页面级函数绑定存在内部崩溃（WMC9999
+        掩码），页面级普通属性 x:Bind 不受影响。规避决策记录于此。
     -->
     <Grid Padding="16" RowSpacing="10">
         <Grid.RowDefinitions>
@@ -68,7 +68,36 @@
         <ListView Grid.Row="1" ItemsSource="{x:Bind Vm.Units, Mode=OneWay}" SelectionMode="None">
             <ListView.ItemTemplate>
                 <DataTemplate>
-                    <TextBlock Text="{Binding Id}" />
+                    <Grid ColumnSpacing="12" Padding="0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="3*" />
+                            <ColumnDefinition Width="110" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="{Binding Speaker}" FontWeight="SemiBold"
+                                       Visibility="{Binding SpeakerVisibility}" />
+                            <TextBlock Text="{Binding SourceText}" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+
+                        <TextBox Grid.Column="1" Text="{Binding TranslatedText, Mode=TwoWay}"
+                                 IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="False"
+                                 PlaceholderText="（双击可微调译文）"
+                                 DoubleTapped="OnTranslationDoubleTapped"
+                                 LostFocus="OnTranslationLostFocus" />
+
+                        <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center">
+                            <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
+                                    Background="{Binding StatusBrush}">
+                                <TextBlock Text="{Binding Status}" FontSize="11" />
+                            </Border>
+                            <TextBlock FontSize="11"
+                                       Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                       Text="{Binding WarningLabel}" />
+                        </StackPanel>
+                    </Grid>
                 </DataTemplate>
             </ListView.ItemTemplate>
         </ListView>
