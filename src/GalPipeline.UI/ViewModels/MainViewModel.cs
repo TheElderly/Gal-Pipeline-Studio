@@ -179,7 +179,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         });
     }
 
-    /// <summary>导出回写：把当前项目（含手动微调译文）交还适配器生成汉化脚本。</summary>
+    /// <summary>导出回写：以行 VM 的最新 Model 重建项目（覆盖批量译文与人工微调），
+    /// 杜绝抽取期陈旧信封静默丢弃译文。</summary>
     [RelayCommand]
     private async Task ExportAssetAsync(string? outputDir)
     {
@@ -189,9 +190,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
         var directory = string.IsNullOrWhiteSpace(outputDir) ? "export" : outputDir;
+        var project = CurrentProject with { Units = Units.Select(u => u.Model).ToList() };
         await RunBusyAsync(async () =>
         {
-            var result = await _client!.IrToAssetAsync(CurrentProject, directory);
+            var result = await _client!.IrToAssetAsync(project, directory);
             StatusMessage = $"导出成功：{result.OutputPath}";
         });
     }

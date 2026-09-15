@@ -17,3 +17,4 @@ tools/
 data/*.db
 data/*.sqlite
 export/
+tests/fixtures/output/
