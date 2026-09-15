@@ -31,12 +31,17 @@ _MACRO_RE = re.compile(r"\[[a-zA-Z][^\]\n]*\]")
 
 
 def _decode(raw: bytes) -> tuple[str, str]:
-    """嗅探解码：UTF-8 优先，失败回退 CP932；两者皆败属无法管辖。"""
+    """嗅探解码：UTF-8 优先，失败回退 CP932；换行统一归一为 LF。
+
+    不归一的话，CRLF 源文件的骨架行会携带尾部 \\r 进入 kag_source，
+    回写时与 write_text 的换行翻译叠加成 \\r\\r\\n 双回车，骨架被撑破。
+    """
     for encoding in ("utf-8", "cp932"):
         try:
-            return raw.decode(encoding).lstrip("\ufeff"), encoding
+            text = raw.decode(encoding).lstrip("\ufeff")
         except UnicodeDecodeError:
             continue
+        return text.replace("\r\n", "\n").replace("\r", "\n"), encoding
     raise EngineAdapterError("KAG 脚本既非 UTF-8 也非 CP932，无法解码")
 
 
