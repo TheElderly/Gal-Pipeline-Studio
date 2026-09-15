@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/GalPipeline.Core/GalPipeline.Core.csproj" />
+    <Project Path="src/GalPipeline.UI/GalPipeline.UI.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/GalPipeline.Core.Tests/GalPipeline.Core.Tests.csproj" />
