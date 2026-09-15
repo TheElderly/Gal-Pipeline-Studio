@@ -1,0 +1,15 @@
+.git/
+node_modules/
+bin/
+obj/
+tools/
+data/
+tests/mock_data/
+*.cst
+*.xp3
+*.psb
+*.png
+*.bmp
+*.bin
+*.db
+*.sqlite

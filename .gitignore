@@ -1,0 +1,19 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+
+# .NET / WinUI 构建产物
+bin/
+obj/
+*.user
+*.suo
+
+# 运行时生成数据与第三方工具
+tools/
+data/*.db
+data/*.sqlite
+export/
