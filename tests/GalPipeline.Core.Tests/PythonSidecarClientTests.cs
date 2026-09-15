@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using GalPipeline.Core.IPC;
 using Xunit;
@@ -87,5 +89,145 @@ public class PythonSidecarClientTests
                 Directory.Delete(outputDir, recursive: true);
             }
         }
+    }
+}
+
+/// <summary>
+/// 127.0.0.1 环回 OpenAI /models 桩：裸 TcpListener 应答，按路径分流
+/// 成功 / 401 / 非 JSON，并记录 Authorization 头供断言。
+/// </summary>
+internal sealed class StubModelServer : IDisposable
+{
+    private readonly TcpListener _listener;
+    private readonly CancellationTokenSource _cts = new();
+
+    public int Port { get; }
+    public string? LastAuth { get; private set; }
+
+    public StubModelServer()
+    {
+        _listener = new TcpListener(IPAddress.Loopback, 0);
+        _listener.Start();
+        Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+        _ = Task.Run(() => ServeAsync(_cts.Token));
+    }
+
+    private async Task ServeAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            TcpClient client;
+            try
+            {
+                client = await _listener.AcceptTcpClientAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            _ = Task.Run(() => HandleAsync(client, ct), ct);
+        }
+    }
+
+    private async Task HandleAsync(TcpClient client, CancellationToken ct)
+    {
+        using var _ = client;
+        var stream = client.GetStream();
+        var request = await ReadRequestHeadAsync(stream, ct);
+        var path = request.Split(' ').ElementAtOrDefault(1) ?? string.Empty;
+        LastAuth = GetHeader(request, "Authorization");
+
+        int code;
+        string body;
+        if (path.StartsWith("/unauth"))
+        {
+            code = 401;
+            body = "{\"error\": {\"message\": \"invalid key\"}}";
+        }
+        else if (path.StartsWith("/broken"))
+        {
+            code = 200;
+            body = "<html>not-json</html>";
+        }
+        else
+        {
+            code = 200;
+            body = "{\"data\": [{\"id\": \"glm-4-flash\"}, {\"id\": \"glm-4-plus\"}]}";
+        }
+
+        var payload = Encoding.UTF8.GetBytes(body);
+        var head = Encoding.ASCII.GetBytes(
+            $"HTTP/1.1 {code} Test\r\nContent-Type: application/json\r\nContent-Length: {payload.Length}\r\nConnection: close\r\n\r\n");
+        await stream.WriteAsync(head, ct);
+        await stream.WriteAsync(payload, ct);
+    }
+
+    private static async Task<string> ReadRequestHeadAsync(NetworkStream stream, CancellationToken ct)
+    {
+        var buffer = new byte[4096];
+        var head = new StringBuilder();
+        while (!head.ToString().Contains("\r\n\r\n"))
+        {
+            var read = await stream.ReadAsync(buffer, ct);
+            if (read == 0)
+            {
+                break;
+            }
+            head.Append(Encoding.ASCII.GetString(buffer, 0, read));
+        }
+        return head.ToString();
+    }
+
+    private static string? GetHeader(string request, string name)
+    {
+        foreach (var line in request.Split("\r\n"))
+        {
+            var idx = line.IndexOf(':');
+            if (idx > 0 && line[..idx].Trim().Equals(name, StringComparison.OrdinalIgnoreCase))
+            {
+                return line[(idx + 1)..].Trim();
+            }
+        }
+        return null;
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _listener.Stop();
+        _cts.Dispose();
+    }
+}
+
+public class FetchModelsTests
+{
+    [Fact]
+    public async Task FetchModelsAsync_ReturnsModelIds()
+    {
+        using var server = new StubModelServer();
+        using var client = new PythonSidecarClient();
+        var models = await client.FetchModelsAsync($"http://127.0.0.1:{server.Port}/v1", "sk-test");
+        Assert.Equal(new[] { "glm-4-flash", "glm-4-plus" }, models);
+        Assert.Equal("Bearer sk-test", server.LastAuth);
+    }
+
+    [Fact]
+    public async Task FetchModelsAsync_Unauthorized_MapsToBusinessError()
+    {
+        using var server = new StubModelServer();
+        using var client = new PythonSidecarClient();
+        var failure = await Assert.ThrowsAsync<JsonRpcException>(
+            () => client.FetchModelsAsync($"http://127.0.0.1:{server.Port}/unauth", "bad-key"));
+        Assert.Equal(-32000, failure.Code);
+        Assert.Contains("401", failure.Message);
+    }
+
+    [Fact]
+    public async Task FetchModelsAsync_ConnectionRefused_MapsToBusinessError()
+    {
+        using var client = new PythonSidecarClient();
+        var failure = await Assert.ThrowsAsync<JsonRpcException>(
+            () => client.FetchModelsAsync("http://127.0.0.1:1/v1"));
+        Assert.Equal(-32000, failure.Code);
     }
 }

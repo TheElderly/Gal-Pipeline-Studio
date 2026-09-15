@@ -46,16 +46,19 @@ public sealed record ExtractToIrResult(
 
 public sealed record DetectFormatResult(bool Detected, string Adapter);
 
+public sealed record FetchModelsResult(List<string> Models);
+
 public sealed record IrToAssetResult(string OutputPath);
 
 public sealed record TranslationConfigDto(
     string ApiBase,
     string ModelName,
     string? ApiKey = null,
-    double? Temperature = null,
+    double Temperature = 0.3,
     int? BatchSize = null,
     double? TimeoutSeconds = null,
-    int? MaxRetries = null);
+    int? MaxRetries = null,
+    string? ReasoningEffort = null);
 
 // ---------------------------------------------------------------------------
 // 客户端
@@ -124,6 +127,18 @@ public sealed class PythonSidecarClient : IDisposable
             .ConfigureAwait(false);
         return result.Deserialize<DetectFormatResult>(DtoOptions)
             ?? throw new JsonRpcException(-32603, "detect_format 响应结构异常");
+    }
+
+    /// <summary>拉取 OpenAI 兼容端点的模型清单（fetch_models 跨进程转发）。</summary>
+    public async Task<List<string>> FetchModelsAsync(
+        string apiBase, string? apiKey = null, CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync(
+            "fetch_models",
+            new { api_base = apiBase, api_key = apiKey },
+            cancellationToken).ConfigureAwait(false);
+        return result.Deserialize<FetchModelsResult>(DtoOptions)?.Models
+            ?? throw new JsonRpcException(-32603, "fetch_models 响应结构异常");
     }
 
     public async Task<ExtractToIrResult> ExtractToIrAsync(

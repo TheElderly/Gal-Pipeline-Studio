@@ -14,6 +14,8 @@
 import io
 import json
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
@@ -236,3 +238,90 @@ class TestServeStdio:
         assert len(lines) == 2  # 通知无响应
         assert json.loads(lines[0])["result"] == "pong"
         assert json.loads(lines[1])["error"]["code"] == -32601
+
+
+# ---------------------------------------------------------------------------
+# 6. fetch_models：环回 OpenAI /models 桩（成功与三类异常映射）
+# ---------------------------------------------------------------------------
+
+
+class StubModelServer:
+    """127.0.0.1 环回桩：按路径分流 成功 / 401 / 非 JSON，并记录鉴权头。"""
+
+    def __init__(self) -> None:
+        self.last_auth: str | None = None
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                outer.last_auth = self.headers.get("Authorization")
+                if self.path.startswith("/unauth"):
+                    self._reply(401, '{"error": {"message": "invalid key"}}')
+                elif self.path.startswith("/broken"):
+                    self._reply(200, "<html>not-json</html>")
+                else:
+                    self._reply(200, json.dumps({"data": [{"id": "glm-4-flash"}, {"id": "glm-4-plus"}]}))
+
+            def _reply(self, code: int, text: str) -> None:
+                body = text.encode("utf-8")
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        self._server = HTTPServer(("127.0.0.1", 0), Handler)
+        self.port = self._server.server_address[1]
+        threading.Thread(target=self._server.serve_forever, daemon=True).start()
+
+    def stop(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+
+
+@pytest.fixture
+def model_server():
+    server = StubModelServer()
+    yield server
+    server.stop()
+
+
+class TestFetchModels:
+    """fetch_models：成功解析、鉴权失败、非 JSON、网络拒绝四路覆盖。"""
+
+    def test_success_parses_model_ids(self, dispatcher, model_server):
+        resp = _result(dispatcher, _rpc("fetch_models", {
+            "api_base": f"http://127.0.0.1:{model_server.port}/v1",
+            "api_key": "sk-test",
+        }))
+        assert resp["result"] == {"models": ["glm-4-flash", "glm-4-plus"]}
+        assert model_server.last_auth == "Bearer sk-test"
+
+    def test_success_without_api_key_omits_auth_header(self, dispatcher, model_server):
+        resp = _result(dispatcher, _rpc(
+            "fetch_models", {"api_base": f"http://127.0.0.1:{model_server.port}/v1"}))
+        assert "glm-4-plus" in resp["result"]["models"]
+        assert model_server.last_auth is None
+
+    def test_http_401_maps_to_business_error(self, dispatcher, model_server):
+        resp = _result(dispatcher, _rpc("fetch_models", {
+            "api_base": f"http://127.0.0.1:{model_server.port}/unauth",
+            "api_key": "bad-key",
+        }))
+        assert resp["error"]["code"] == -32000
+        assert "401" in resp["error"]["message"]
+
+    def test_non_json_response_maps_to_business_error(self, dispatcher, model_server):
+        resp = _result(dispatcher, _rpc("fetch_models", {
+            "api_base": f"http://127.0.0.1:{model_server.port}/broken",
+        }))
+        assert resp["error"]["code"] == -32000
+        assert "JSON" in resp["error"]["message"]
+
+    def test_connection_refused_maps_to_business_error(self, dispatcher):
+        resp = _result(dispatcher, _rpc("fetch_models", {"api_base": "http://127.0.0.1:1/v1"}))
+        assert resp["error"]["code"] == -32000
+        assert "网络" in resp["error"]["message"]

@@ -16,6 +16,7 @@ import urllib.error
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 # 项目尚未打包（无 pyproject.toml），此处把仓库根注入 sys.path，
 # 保证 `pytest` 与 `python -m pytest` 两种唤起方式的导入行为一致。
@@ -32,15 +33,17 @@ from core.pipeline.translator import (
 
 
 class MockTranslator(GalgameTranslator):
-    """固定回复 Mock：注入罐头译文内容。"""
+    """固定回复 Mock：注入罐头译文内容并记录最近一次载荷。"""
 
     def __init__(self, config: TranslationConfig, content: str):
         super().__init__(config)
         self._content = content
         self.calls = 0
+        self.last_payload: dict | None = None
 
     def _post(self, payload: str) -> str:
         self.calls += 1
+        self.last_payload = json.loads(payload)
         return json.dumps(
             {"choices": [{"message": {"content": self._content}}]}, ensure_ascii=False
         )
@@ -170,3 +173,39 @@ class TestContractConservation:
         assert [p.model_dump() for p in unit.paired_tags] == paired_before
         assert id(unit.atomic_tags) == atomic_list_id  # 列表对象未被替换
         assert id(unit.paired_tags) == paired_list_id
+
+
+class TestReasoningEffortPayload:
+    """reasoning_effort 载荷注入契约（DeepSeek-R1 / o 系列 / GLM 推理模型适配）。"""
+
+    def test_injected_into_payload_when_set(self):
+        cfg = TranslationConfig(
+            api_base="http://mock.local/v1",
+            model_name="glm-test",
+            reasoning_effort="high",
+        )
+        mock = MockTranslator(cfg, "1. 好")
+        mock.translate_batch([_unit("re-1", "テスト")])
+        assert mock.last_payload is not None
+        assert mock.last_payload["reasoning_effort"] == "high"
+
+    def test_omitted_from_payload_when_none(self, config):
+        mock = MockTranslator(config, "1. 好")
+        mock.translate_batch([_unit("re-2", "テスト")])
+        assert mock.last_payload is not None
+        assert "reasoning_effort" not in mock.last_payload
+
+    @pytest.mark.parametrize("value", ["low", "medium", "high", "max"])
+    def test_allowed_values_accepted(self, value):
+        cfg = TranslationConfig(
+            api_base="http://mock.local/v1", model_name="glm-test", reasoning_effort=value
+        )
+        assert cfg.reasoning_effort == value
+
+    def test_invalid_value_rejected_at_construction(self):
+        with pytest.raises(ValidationError):
+            TranslationConfig(
+                api_base="http://mock.local/v1",
+                model_name="glm-test",
+                reasoning_effort="ultra",
+            )

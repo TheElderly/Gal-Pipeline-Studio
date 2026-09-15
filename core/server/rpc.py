@@ -27,6 +27,8 @@
 import inspect
 import json
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
@@ -35,7 +37,7 @@ from pydantic import ValidationError
 from ..adapters.base import EngineAdapterError, UnsupportedFormatError
 from ..adapters.kag import KagAdapter
 from ..models.ir import GalIRProject, TranslationUnit
-from ..pipeline.translator import GalgameTranslator, TranslationConfig
+from ..pipeline.translator import GalgameTranslator, TranslationAPIError, TranslationConfig
 
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
@@ -43,7 +45,10 @@ METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 BUSINESS_ERROR = -32000
-"""业务错误约定码：EngineAdapterError 家族统一映射于此。"""
+"""业务错误约定码：EngineAdapterError / TranslationAPIError 家族统一映射于此。"""
+
+_MODELS_TIMEOUT_SECONDS = 15.0
+"""fetch_models 单次 GET 的网络超时。"""
 
 
 class _RpcFailure(Exception):
@@ -52,6 +57,39 @@ class _RpcFailure(Exception):
     def __init__(self, code: int, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+def fetch_models(api_base: str, api_key: str | None = None) -> dict:
+    """向 OpenAI 兼容端点发起 ``GET {api_base}/models`` 并归一化模型清单。
+
+    异常分类（全部收拢为 TranslationAPIError → JSON-RPC -32000，消息
+    区分失败类别）：
+
+    * 网络错误 / 超时（URLError、TimeoutError）；
+    * 鉴权失败（HTTP 401）与其他 HTTP 错误；
+    * 非 JSON / 非标准 OpenAI 响应结构。
+    """
+    request = urllib.request.Request(
+        f"{api_base.rstrip('/')}/models",
+        headers={"Accept": "application/json",
+                 **({"Authorization": f"Bearer {api_key}"} if api_key else {})},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=_MODELS_TIMEOUT_SECONDS) as resp:
+            raw = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            raise TranslationAPIError("鉴权失败（HTTP 401）：请检查 API Key") from exc
+        raise TranslationAPIError(f"模型列表请求失败（HTTP {exc.code}）") from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        reason = getattr(exc, "reason", exc)
+        raise TranslationAPIError(f"模型列表请求失败（网络错误/超时）：{reason}") from exc
+    try:
+        models = [item["id"] for item in json.loads(raw)["data"]]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise TranslationAPIError("响应不是标准 OpenAI 模型列表 JSON") from exc
+    return {"models": models}
 
 
 class RpcDispatcher:
@@ -107,6 +145,8 @@ class RpcDispatcher:
         """异常 → (错误码, 消息) 的唯一映射点（防御顺序敏感）。"""
         if isinstance(exc, _RpcFailure):
             return exc.code, str(exc)
+        if isinstance(exc, TranslationAPIError):
+            return BUSINESS_ERROR, str(exc)
         if isinstance(exc, EngineAdapterError):
             return BUSINESS_ERROR, str(exc)
         if isinstance(exc, ValidationError):
@@ -130,6 +170,7 @@ def build_default_dispatcher() -> RpcDispatcher:
     register = dispatcher.register
 
     register("ping", lambda: "pong")
+    register("fetch_models", fetch_models)
 
     def detect_format(file_path: str) -> dict:
         for name, adapter in adapters.items():

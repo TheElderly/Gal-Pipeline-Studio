@@ -20,6 +20,7 @@ import json
 import re
 import urllib.error
 import urllib.request
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -49,6 +50,10 @@ class TranslationConfig(BaseModel):
     api_key: str = ""
     model_name: str = Field(min_length=1)
     temperature: float = Field(default=0.3, ge=0.0, le=2.0)
+    reasoning_effort: Literal["low", "medium", "high", "max"] | None = Field(
+        default=None,
+        description="推理力度（适配 DeepSeek-R1 / OpenAI o 系列 / GLM 推理模型）；None 不注入载荷",
+    )
     system_prompt: str = Field(default=_DEFAULT_SYSTEM_PROMPT)
     batch_size: int = Field(default=8, ge=1)
     timeout_seconds: float = Field(default=30.0, ge=0.1)
@@ -81,17 +86,17 @@ class GalgameTranslator:
             else f"{n}. {u.extracted_text}"
             for n, u in enumerate(chunk, start=1)
         ]
-        return json.dumps(
-            {
-                "model": self._config.model_name,
-                "temperature": self._config.temperature,
-                "messages": [
-                    {"role": "system", "content": self._config.system_prompt},
-                    {"role": "user", "content": "请翻译下列编号文本：\n" + "\n".join(lines)},
-                ],
-            },
-            ensure_ascii=False,
-        )
+        payload: dict = {
+            "model": self._config.model_name,
+            "temperature": self._config.temperature,
+            "messages": [
+                {"role": "system", "content": self._config.system_prompt},
+                {"role": "user", "content": "请翻译下列编号文本：\n" + "\n".join(lines)},
+            ],
+        }
+        if self._config.reasoning_effort is not None:
+            payload["reasoning_effort"] = self._config.reasoning_effort
+        return json.dumps(payload, ensure_ascii=False)
 
     @staticmethod
     def _parse_response(content: str) -> dict[int, str]:
