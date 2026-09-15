@@ -7,8 +7,8 @@ venv/
 .pytest_cache/
 
 # .NET / WinUI 构建产物
-bin/
-obj/
+[Bb]in/
+[Oo]bj/
 *.user
 *.suo
 
