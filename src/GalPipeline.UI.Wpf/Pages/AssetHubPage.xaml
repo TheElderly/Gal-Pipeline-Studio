@@ -1,0 +1,21 @@
+<Page
+    x:Class="GalPipeline.Desktop.Pages.AssetHubPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <!-- WPF StackPanel 无 Spacing 属性，以子元素 Margin 表达间距 -->
+    <StackPanel Margin="28,24">
+        <ui:TextBlock FontTypography="TitleLarge" Text="Asset Hub 资产归档"
+                      Margin="0,0,0,12" />
+        <ui:TextBlock FontTypography="Body"
+                      Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                      TextWrapping="Wrap"
+                      Margin="0,0,0,12"
+                      Text="封包/图片/音频等资产的集中归档与预览，图像经 RGBA PNG-32 内存归一化管道。" />
+        <ui:InfoBar
+            Title="占位导航槽"
+            Message="资产库面板将于后续切片交付。"
+            IsOpen="True"
+            IsClosable="False" />
+    </StackPanel>
+</Page>

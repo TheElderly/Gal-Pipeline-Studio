@@ -1,0 +1,21 @@
+<Page
+    x:Class="GalPipeline.Desktop.Pages.LqaLabPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <!-- WPF StackPanel 无 Spacing 属性，以子元素 Margin 表达间距 -->
+    <StackPanel Margin="28,24">
+        <ui:TextBlock FontTypography="TitleLarge" Text="LQA Lab 质检中心"
+                      Margin="0,0,0,12" />
+        <ui:TextBlock FontTypography="Body"
+                      Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                      TextWrapping="Wrap"
+                      Margin="0,0,0,12"
+                      Text="汇总全部 LQA_FAILED 单元，提供单条重试或整体忽略的复检工作区。" />
+        <ui:InfoBar
+            Title="占位导航槽"
+            Message="质检工作区将于后续切片交付。"
+            IsOpen="True"
+            IsClosable="False" />
+    </StackPanel>
+</Page>

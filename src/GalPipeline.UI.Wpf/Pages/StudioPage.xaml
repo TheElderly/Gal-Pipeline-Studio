@@ -1,0 +1,21 @@
+<Page
+    x:Class="GalPipeline.Desktop.Pages.StudioPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <!-- WPF StackPanel 无 Spacing 属性，以子元素 Margin 表达间距 -->
+    <StackPanel Margin="28,24">
+        <ui:TextBlock FontTypography="TitleLarge" Text="Studio 剧本工坊"
+                      Margin="0,0,0,12" />
+        <ui:TextBlock FontTypography="Body"
+                      Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                      TextWrapping="Wrap"
+                      Margin="0,0,0,12"
+                      Text="载入 .ks 剧本 → 双栏对照翻译（含 reasoning_effort 推理力度调度）→ LQA 门禁 → 导出回写。" />
+        <ui:InfoBar
+            Title="占位导航槽"
+            Message="核心工作台面板将于阶段三后续切片迁入本导航槽。"
+            IsOpen="True"
+            IsClosable="False" />
+    </StackPanel>
+</Page>
