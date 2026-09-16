@@ -7,28 +7,56 @@
     PreviewKeyDown="OnStudioPreviewKeyDown">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+
+        <!-- 筛选胶囊单选样式（Fluent 2 Pill：无边框深色圆角，选中态高亮） -->
+        <Style x:Key="PillRadioStyle" TargetType="RadioButton">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="14,4" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border
+                            x:Name="BorderRoot"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="12"
+                            Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="BorderRoot" Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True" />
+                                    <Condition Property="IsChecked" Value="False" />
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="BorderRoot" Property="Background" Value="#2A2A2A" />
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
-    <!--
-        Studio 剧本工坊（对照视觉稿）：
-        Row0 顶部操作栏：搜索(Ctrl+F) / Batch Translate (N) / Export & Compile / 筛选胶囊 / 进度
-        Row1 载入行：剧本路径 + 载入剧本
-        Row2 主区：虚拟化双栏审校表格 + 可折叠 Context Inspector
-        Row3 底部状态栏：状态 / 文件与行数 / Token / Latency
-    -->
+    <!-- 主布局：仅两行（Row0 顶部工具栏 / Row1 核心数据网格 + 右侧抽屉） -->
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- Row0 顶部操作栏 -->
         <Border
             Grid.Row="0"
-            Padding="12,8"
-            BorderBrush="{DynamicResource TextFillColorSecondaryBrush}"
+            Padding="16,10"
+            BorderBrush="#222222"
             BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -38,218 +66,332 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
+
+                <!-- 搜索（Ctrl+F）：驱动 UnitsView 过滤（行号/原文/译文/说话人） -->
                 <ui:TextBox
                     Grid.Column="0"
-                    Width="200"
+                    Width="190"
                     x:Name="SearchBox"
                     PlaceholderText="Search line / Ctrl+F"
                     Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="12,0,0,0">
+
+                <!-- 主命令组：打开 / 批量翻译（EXTRACTED+LQA_FAILED）/ 导出（CommitEdits 后重建信封） -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="10,0,0,0">
                     <ui:Button
+                        Appearance="Secondary"
+                        Icon="{ui:SymbolIcon Symbol=FolderOpen24}"
+                        Content="打开"
+                        Command="{Binding OpenFilePickerCommand}"
+                        ToolTip="选择外部 .ks 剧本文件（支持直接拖入窗口）" />
+                    <ui:Button
+                        Margin="6,0,0,0"
                         Appearance="Primary"
                         Content="{Binding BatchTranslateLabel, Mode=OneWay}"
                         IsEnabled="{Binding IsIdle, Mode=OneWay}"
                         Command="{Binding TranslateBatchCommand}"
                         ToolTip="默认指向本地环回 Mock（127.0.0.1:18080/v1），零额度离线演练" />
                     <ui:Button
-                        Margin="8,0,0,0"
+                        Margin="6,0,0,0"
                         Appearance="Secondary"
                         Content="Export &amp; Compile"
                         IsEnabled="{Binding IsIdle, Mode=OneWay}"
                         Command="{Binding ExportScriptCommand}" />
                 </StackPanel>
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="12,0,0,0">
-                    <ui:Button Content="All" Command="{Binding SetFilterCommand}" CommandParameter="All">
-                        <ui:Button.Style>
-                            <Style TargetType="ui:Button">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding FilterMode}" Value="All">
-                                        <Setter Property="Appearance" Value="Primary" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </ui:Button.Style>
-                    </ui:Button>
-                    <ui:Button Margin="4,0,0,0" Content="Pending" Command="{Binding SetFilterCommand}" CommandParameter="Pending">
-                        <ui:Button.Style>
-                            <Style TargetType="ui:Button">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding FilterMode}" Value="Pending">
-                                        <Setter Property="Appearance" Value="Primary" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </ui:Button.Style>
-                    </ui:Button>
-                    <ui:Button Margin="4,0,0,0" Content="Failed" Command="{Binding SetFilterCommand}" CommandParameter="Failed">
-                        <ui:Button.Style>
-                            <Style TargetType="ui:Button">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding FilterMode}" Value="Failed">
-                                        <Setter Property="Appearance" Value="Primary" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </ui:Button.Style>
-                    </ui:Button>
-                </StackPanel>
-                <StackPanel Grid.Column="4" Orientation="Horizontal">
+
+                <!-- 筛选胶囊栏（RadioButton 驱动 FilterMode） -->
+                <Border
+                    Grid.Column="2"
+                    Margin="16,0,0,0"
+                    Padding="2"
+                    Background="#1C1C1C"
+                    CornerRadius="14">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton
+                            Content="All"
+                            IsChecked="True"
+                            Style="{StaticResource PillRadioStyle}"
+                            Command="{Binding SetFilterCommand}"
+                            CommandParameter="All" />
+                        <RadioButton
+                            Content="Pending"
+                            Style="{StaticResource PillRadioStyle}"
+                            Command="{Binding SetFilterCommand}"
+                            CommandParameter="Pending" />
+                        <RadioButton
+                            Content="Failed"
+                            Style="{StaticResource PillRadioStyle}"
+                            Command="{Binding SetFilterCommand}"
+                            CommandParameter="Failed" />
+                    </StackPanel>
+                </Border>
+
+                <!-- 进度：Passed/(Total) 比例 -->
+                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
                     <ProgressBar
-                        Width="160"
-                        Height="6"
-                        VerticalAlignment="Center"
+                        Width="120"
+                        Height="4"
                         Maximum="100"
                         Value="{Binding ProgressPercent, Mode=OneWay}" />
                     <TextBlock
                         Margin="8,0,0,0"
-                        VerticalAlignment="Center"
+                        FontSize="11"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                         Text="{Binding ProgressPercent, StringFormat={}{0:0}% Translated}" />
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- Row1 载入行 -->
-        <Grid Grid.Row="1" Margin="16,10,16,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <ui:TextBox
-                Grid.Column="0"
-                VerticalAlignment="Center"
-                PlaceholderText="拖入或输入 .ks 剧本文件路径"
-                Text="{Binding CurrentFilePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-            <Button
-                Grid.Column="1"
-                Margin="8,0,0,0"
-                Content="载入剧本"
-                Command="{Binding LoadFileCommand}"
-                CommandParameter="{Binding CurrentFilePath, Mode=OneWay}" />
-        </Grid>
-
-        <!-- Row2 主区：审校表格 + 情境抽屉 -->
-        <Grid Grid.Row="2">
+        <!-- Row1 核心工作区：表头 + 虚拟化数据网格 + 右侧抽屉（支持拖入剧本） -->
+        <Grid
+            Grid.Row="1"
+            AllowDrop="True"
+            Drop="OnStudioViewDrop">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <ListView
-                Grid.Column="0"
-                Margin="16,10,8,10"
-                Background="Transparent"
-                ItemsSource="{Binding UnitsView, Mode=OneWay}"
-                SelectedItem="{Binding SelectedUnit, Mode=TwoWay}"
-                SelectionMode="Single"
-                BorderBrush="{DynamicResource TextFillColorSecondaryBrush}"
-                BorderThickness="0,1,0,1"
-                VirtualizingPanel.VirtualizationMode="Standard">
-                <ListView.ItemTemplate>
-                    <DataTemplate>
-                        <Grid Margin="0,4">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="150" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="190" />
-                            </Grid.ColumnDefinitions>
+            <!-- 表格区：固定表头 + 虚拟化列表（列宽 140 / * / * / 165，两处锁定一致） -->
+            <Grid Grid.Column="0" Margin="16,8,8,12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
 
-                            <!-- 第 1 列：Line & Speaker -->
-                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Top">
-                                <TextBlock
-                                    Text="{Binding LineNumberTag}"
-                                    FontFamily="Consolas"
-                                    FontSize="11"
-                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                    VerticalAlignment="Center" />
-                                <Border
-                                    Margin="6,0,0,0"
-                                    Padding="6,2"
-                                    CornerRadius="4"
-                                    Background="{Binding SpeakerBadgeBrush}">
-                                    <TextBlock
-                                        Text="{Binding Speaker}"
-                                        FontSize="11"
-                                        Foreground="White" />
-                                </Border>
-                            </StackPanel>
+                <!-- 固定列头 -->
+                <Border
+                    Grid.Row="0"
+                    Padding="12,8"
+                    CornerRadius="4,4,0,0"
+                    Background="#161616"
+                    BorderBrush="#252525"
+                    BorderThickness="1,1,1,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="165" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Column="0"
+                            Text="Line &amp; Speaker"
+                            FontSize="11"
+                            FontWeight="SemiBold"
+                            Foreground="#888888" />
+                        <TextBlock
+                            Grid.Column="1"
+                            Text="Japanese Source"
+                            FontSize="11"
+                            FontWeight="SemiBold"
+                            Foreground="#888888" />
+                        <TextBlock
+                            Grid.Column="2"
+                            Text="Chinese Target · Inline Editing"
+                            FontSize="11"
+                            FontWeight="SemiBold"
+                            TextTrimming="CharacterEllipsis"
+                            Foreground="#888888" />
+                        <TextBlock
+                            Grid.Column="3"
+                            Text="LQA Status &amp; Actions"
+                            FontSize="11"
+                            FontWeight="SemiBold"
+                            Foreground="#888888" />
+                    </Grid>
+                </Border>
 
-                            <!-- 第 2 列：Japanese Source（宏药丸 + 正文） -->
-                            <StackPanel Grid.Column="1" Margin="0,0,10,0" VerticalAlignment="Top">
-                                <ItemsControl ItemsSource="{Binding MacroPills}" Margin="0,0,0,4">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <WrapPanel Orientation="Horizontal" />
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
+                <!-- 数据列表（虚拟化；行高 32~36px；禁用横向滚动） -->
+                <ListView
+                    Grid.Row="1"
+                    Background="#111111"
+                    BorderBrush="#252525"
+                    BorderThickness="1,0,1,1"
+                    ItemsSource="{Binding UnitsView, Mode=OneWay}"
+                    SelectedItem="{Binding SelectedUnit, Mode=TwoWay}"
+                    SelectionMode="Single"
+                    ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                    VirtualizingPanel.IsVirtualizing="True"
+                    VirtualizingPanel.VirtualizationMode="Standard">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0" />
+                            <Setter Property="MinHeight" Value="32" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Background" Value="Transparent" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListViewItem">
+                                        <!-- 选中行：左缘 3px 亮蓝 Accent Strip + 半透明微光深蓝底 -->
+                                        <Border
+                                            x:Name="RowRoot"
+                                            Background="Transparent"
+                                            BorderThickness="3,0,0,0"
+                                            BorderBrush="Transparent">
+                                            <ContentPresenter />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="RowRoot" Property="Background" Value="#152438" />
+                                                <Setter TargetName="RowRoot" Property="BorderBrush" Value="#3B82F6" />
+                                            </Trigger>
+                                            <MultiTrigger>
+                                                <MultiTrigger.Conditions>
+                                                    <Condition Property="IsMouseOver" Value="True" />
+                                                    <Condition Property="IsSelected" Value="False" />
+                                                </MultiTrigger.Conditions>
+                                                <Setter TargetName="RowRoot" Property="Background" Value="#161C26" />
+                                            </MultiTrigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Border
+                                Padding="6,3"
+                                BorderBrush="#1C1C1C"
+                                BorderThickness="0,0,0,1">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="165" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- 第 1 列：行号（等宽）+ 角色胶囊（哈希着色） -->
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock
+                                            Text="{Binding LineNumberTag}"
+                                            FontFamily="Consolas"
+                                            FontSize="11"
+                                            Foreground="#777777"
+                                            VerticalAlignment="Center" />
+                                        <Border
+                                            Margin="6,0,0,0"
+                                            Padding="6,2"
+                                            CornerRadius="4"
+                                            Background="{Binding SpeakerBadgeBrush}">
+                                            <TextBlock
+                                                Text="{Binding Speaker}"
+                                                FontSize="11"
+                                                Foreground="White" />
+                                        </Border>
+                                    </StackPanel>
+
+                                    <!-- 第 2 列：宏药丸（#4A154B）与正文同行流动 -->
+                                    <WrapPanel
+                                        Grid.Column="1"
+                                        Margin="0,0,10,0"
+                                        VerticalAlignment="Center">
+                                        <ItemsControl ItemsSource="{Binding MacroPills}" Margin="0,0,6,0">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <StackPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border
+                                                        Margin="0,0,4,2"
+                                                        Padding="6,1"
+                                                        CornerRadius="8"
+                                                        Background="#4A154B">
+                                                        <TextBlock
+                                                            Text="{Binding Text}"
+                                                            FontFamily="Consolas"
+                                                            FontSize="10"
+                                                            Foreground="#E9D5FF" />
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock
+                                            Text="{Binding SourceText}"
+                                            FontSize="12"
+                                            MaxWidth="240"
+                                            TextWrapping="Wrap"
+                                            Foreground="#D1D5DB"
+                                            VerticalAlignment="Center" />
+                                    </WrapPanel>
+
+                                    <!-- 第 3 列：译文 TextBox 拉伸平铺 + 静默态无边框（聚焦线见样式） + LostFocus 同步 DTO -->
+                                    <ui:TextBox
+                                        Grid.Column="2"
+                                        Margin="4,2"
+                                        HorizontalAlignment="Stretch"
+                                        MinHeight="26"
+                                        Background="Transparent"
+                                        BorderThickness="0,0,0,1"
+                                        BorderBrush="#2F3B4C"
+                                        Text="{Binding TranslatedText, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                        TextWrapping="Wrap"
+                                        LostFocus="OnTranslationLostFocus" />
+
+                                    <!-- 第 4 列：状态字形胶囊 + Re-try + 首条错误气泡 -->
+                                    <StackPanel Grid.Column="3" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal">
                                             <Border
-                                                Margin="0,0,4,2"
-                                                Padding="6,1"
-                                                CornerRadius="8"
-                                                Background="#5B21B6">
+                                                Padding="8,2"
+                                                CornerRadius="4"
+                                                Background="{Binding StatusBrush}"
+                                                ToolTip="{Binding IssueTooltip}">
                                                 <TextBlock
-                                                    Text="{Binding Text}"
-                                                    FontFamily="Consolas"
-                                                    FontSize="10"
-                                                    Foreground="#E9D5FF" />
+                                                    Text="{Binding StatusDisplay}"
+                                                    FontSize="11"
+                                                    Foreground="{Binding StatusForeground}" />
                                             </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                                <TextBlock
-                                    Text="{Binding SourceText}"
-                                    TextWrapping="Wrap"
-                                    Opacity="0.9"
-                                    FontSize="12" />
-                            </StackPanel>
+                                            <ui:Button
+                                                Margin="8,0,0,0"
+                                                Padding="6,2"
+                                                FontSize="10"
+                                                Appearance="Secondary"
+                                                Content="🔄 Re-try"
+                                                Visibility="{Binding IsFailed, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                Command="{Binding DataContext.RetryUnitCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}" />
+                                        </StackPanel>
+                                        <!-- 首条 error 违例气泡（Quote Mismatch 等，150px 折行省略） -->
+                                        <Border
+                                            MaxWidth="150"
+                                            Margin="0,4,0,0"
+                                            Padding="6,3"
+                                            HorizontalAlignment="Left"
+                                            CornerRadius="4"
+                                            Background="#3A1D24"
+                                            Visibility="{Binding HasIssue, Converter={StaticResource BoolToVisibilityConverter}}">
+                                            <TextBlock
+                                                Text="{Binding IssueTooltip}"
+                                                FontSize="10"
+                                                TextWrapping="Wrap"
+                                                TextTrimming="CharacterEllipsis"
+                                                Foreground="#F2A4AD" />
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
 
-                            <!-- 第 3 列：Chinese Target（行内编辑） -->
-                            <TextBox
-                                Grid.Column="2"
-                                Margin="0,0,10,0"
-                                Text="{Binding TranslatedText, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
-                                TextWrapping="Wrap"
-                                AcceptsReturn="False"
-                                MinHeight="28"
-                                LostFocus="OnTranslationLostFocus" />
-
-                            <!-- 第 4 列：LQA Status & Quick Actions -->
-                            <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Top">
-                                <Border
-                                    Padding="10,3"
-                                    CornerRadius="4"
-                                    Background="{Binding StatusBrush}"
-                                    ToolTip="{Binding IssueTooltip}">
-                                    <TextBlock Text="{Binding Status}" FontSize="11" />
-                                </Border>
-                                <Button
-                                    Margin="8,0,0,0"
-                                    Padding="6,2"
-                                    FontSize="11"
-                                    Content="🔄 Re-try"
-                                    Visibility="{Binding IsFailed, Converter={StaticResource BoolToVisibilityConverter}}"
-                                    Command="{Binding DataContext.RetryUnitCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                    CommandParameter="{Binding}" />
-                            </StackPanel>
-                        </Grid>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-
-            <!-- Context Inspector（可折叠抽屉） -->
+            <!-- 右侧 Context Inspector 抽屉（可折叠，选行联动） -->
             <Border
                 Grid.Column="1"
-                Width="260"
-                Margin="0,10,16,10"
-                Padding="12"
+                Width="280"
+                Margin="0,8,16,12"
+                Padding="14"
                 CornerRadius="6"
-                BorderBrush="{DynamicResource TextFillColorSecondaryBrush}"
+                Background="#141414"
+                BorderBrush="#252525"
                 BorderThickness="1"
                 Visibility="{Binding InspectorVisibility}">
                 <StackPanel>
-                    <Grid Margin="0,0,0,10">
+                    <Grid Margin="0,0,0,12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
@@ -257,7 +399,7 @@
                         <ui:TextBlock
                             Grid.Column="0"
                             FontTypography="Subtitle"
-                            Text="Context Inspector" />
+                            Text="{Binding InspectorTitle}" />
                         <ui:Button
                             Grid.Column="1"
                             Appearance="Transparent"
@@ -267,24 +409,27 @@
 
                     <ui:TextBlock
                         FontTypography="Body"
-                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Foreground="#666666"
                         TextWrapping="Wrap"
-                        Text="选择任意一行以查看情境（立绘 / 语音 / 词典命中）。"
+                        Text="选择任意一行以查看情境。"
                         Visibility="{Binding InspectorEmptyVisibility}" />
 
                     <StackPanel Visibility="{Binding InspectorSelectedVisibility}">
-                        <ui:TextBlock FontTypography="BodyStrong" Text="{Binding SelectedUnit.LineNumberTag}" Margin="0,0,0,8" />
+                        <ui:TextBlock
+                            FontTypography="BodyStrong"
+                            Text="{Binding SelectedUnit.LineNumberTag}"
+                            Margin="0,0,0,8" />
 
                         <!-- 角色立绘占位 -->
-                        <Border
-                            Height="110"
-                            CornerRadius="6"
-                            Background="#1F2A38">
+                        <Border Height="130" CornerRadius="4" Background="#1E293B">
                             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                <ui:SymbolIcon Symbol="Person48" FontSize="36" />
+                                <ui:SymbolIcon
+                                    Symbol="Person48"
+                                    FontSize="36"
+                                    Foreground="#64748B" />
                                 <TextBlock
                                     Text="{Binding SelectedUnit.Speaker}"
-                                    HorizontalAlignment="Center"
+                                    Foreground="#CBD5E1"
                                     Margin="0,4,0,0" />
                             </StackPanel>
                         </Border>
@@ -299,7 +444,7 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Rectangle
-                                        Width="4"
+                                        Width="5"
                                         Margin="1,0"
                                         Height="{Binding}"
                                         Fill="#3B82F6"
@@ -308,10 +453,29 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
 
-                        <Grid Margin="0,8,0,0">
+                        <!-- 播放控制组 -->
+                        <StackPanel Margin="0,8,0,0" HorizontalAlignment="Center" Orientation="Horizontal">
+                            <ui:Button
+                                Appearance="Transparent"
+                                Content="⏮"
+                                FontSize="12" />
+                            <ui:Button
+                                Margin="10,0,0,0"
+                                Appearance="Transparent"
+                                Content="▶"
+                                FontSize="12" />
+                            <ui:Button
+                                Margin="10,0,0,0"
+                                Appearance="Transparent"
+                                Content="⏭"
+                                FontSize="12" />
+                        </StackPanel>
+
+                        <!-- 时长与补偿 -->
+                        <Grid Margin="0,6,0,0">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <TextBlock
                                 Grid.Column="0"
@@ -320,10 +484,10 @@
                                 Text="{Binding DurationLabel}" />
                             <TextBlock
                                 Grid.Column="1"
-                                Margin="16,0,0,0"
+                                HorizontalAlignment="Right"
                                 FontFamily="Consolas"
                                 FontSize="11"
-                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                Foreground="#888888"
                                 Text="{Binding CompLabel, StringFormat=Comp: {0}}" />
                         </Grid>
 
@@ -335,8 +499,11 @@
                                         Margin="0,0,0,4"
                                         Padding="8,4"
                                         CornerRadius="4"
-                                        Background="#22314A">
-                                        <TextBlock Text="{Binding}" FontSize="11" />
+                                        Background="#1E293B">
+                                        <TextBlock
+                                            Text="{Binding}"
+                                            FontSize="11"
+                                            Foreground="#94A3B8" />
                                     </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -345,44 +512,5 @@
                 </StackPanel>
             </Border>
         </Grid>
-
-        <!-- Row3 底部状态栏 -->
-        <Border
-            Grid.Row="3"
-            Padding="16,6"
-            BorderBrush="{DynamicResource TextFillColorSecondaryBrush}"
-            BorderThickness="0,1,0,0">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock
-                    Grid.Column="0"
-                    Text="{Binding StatusMessage, Mode=OneWay}"
-                    TextTrimming="CharacterEllipsis"
-                    VerticalAlignment="Center" />
-                <TextBlock
-                    Grid.Column="1"
-                    Margin="12,0,0,0"
-                    VerticalAlignment="Center"
-                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                    Text="{Binding FileStatusLabel, Mode=OneWay}" />
-                <TextBlock
-                    Grid.Column="2"
-                    Margin="12,0,0,0"
-                    VerticalAlignment="Center"
-                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                    Text="{Binding TokenUsageText, Mode=OneWay}" />
-                <TextBlock
-                    Grid.Column="3"
-                    Margin="12,0,0,0"
-                    VerticalAlignment="Center"
-                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                    Text="{Binding LatencyText, Mode=OneWay}" />
-            </Grid>
-        </Border>
     </Grid>
 </UserControl>

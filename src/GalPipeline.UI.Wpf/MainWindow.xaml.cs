@@ -19,6 +19,7 @@ public sealed partial class MainWindow : FluentWindow
         InitializeComponent();
         // 选中/调用依赖 TargetPageType + 页面服务（缺服务时点击选择会被回退）
         RootNavigation.SetPageProviderService(new PageProviderService());
+        StudioViewModel.MetricsSink = (file, metrics) => _vm.PublishStudioMetrics(file, metrics);
         DataContext = _vm;
         Loaded += OnLoaded;
         Closed += (_, _) => _vm.Dispose();

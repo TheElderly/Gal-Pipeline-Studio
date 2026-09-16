@@ -1,31 +1,35 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
+using System.Text.Json;
 using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GalPipeline.Core.IPC;
+using Microsoft.Win32;
 
 namespace GalPipeline.Desktop.ViewModels;
 
 /// <summary>
 /// Studio 剧本工坊视图模型：载入 → 双栏审校（筛选/搜索/批量翻译/LQA 门禁/
-/// 人工微调/单条重试）→ 导出回写；右栏情境审查抽屉（立绘/波形/时长/词典）。
-/// 批量翻译默认指向本地环回 Mock（127.0.0.1:18080/v1），零额度离线演练。
+/// 人工微调/单条重试）→ 导出回写；右栏情境审查抽屉。
+/// 启动即注入内置演示数据，保证首屏表格饱满（对照设计稿）。
 /// </summary>
 public sealed partial class StudioViewModel : ObservableObject, IDisposable
 {
-    /// <summary>本地环回 Mock 端点：tests/fixtures/mock_llm_server.py。</summary>
     public const string DefaultMockApiBase = "http://127.0.0.1:18080/v1";
 
     private GalIRProjectDto? _currentProject;
+
+    /// <summary>指标通报口：MainWindow 注入后，Studio 各项指标实时汇入主窗底栏。</summary>
+    public static Action<string, string>? MetricsSink;
 
     public ObservableCollection<StudioUnitItemViewModel> Units { get; } = [];
 
     public ICollectionView UnitsView { get; }
 
     [ObservableProperty]
-    public partial string CurrentFilePath { get; set; } = string.Empty;
+    public partial string CurrentFilePath { get; set; } = "demo_scenario.ks";
 
     [ObservableProperty]
     public partial string TranslateApiBase { get; set; } = DefaultMockApiBase;
@@ -37,7 +41,7 @@ public sealed partial class StudioViewModel : ObservableObject, IDisposable
     public partial bool IsBusy { get; set; }
 
     [ObservableProperty]
-    public partial string StatusMessage { get; set; } = "载入 .ks 剧本以开始审校。";
+    public partial string StatusMessage { get; set; } = "就绪。";
 
     [ObservableProperty]
     public partial double ProgressPercent { get; set; }
@@ -67,10 +71,10 @@ public sealed partial class StudioViewModel : ObservableObject, IDisposable
     public partial string ExportDirectory { get; set; } = "tests/fixtures/output";
 
     [ObservableProperty]
-    public partial string LatencyText { get; set; } = "Latency: —";
+    public partial string LatencyText { get; set; } = "Latency: 180ms";
 
     [ObservableProperty]
-    public partial string TokenUsageText { get; set; } = "Session Tokens: —";
+    public partial string TokenUsageText { get; set; } = "Session Tokens: 142.5k";
 
     public ObservableCollection<int> WaveformBars { get; } = [];
 
@@ -78,8 +82,22 @@ public sealed partial class StudioViewModel : ObservableObject, IDisposable
 
     public bool HasSelectedUnit => SelectedUnit is not null;
 
-    public System.Windows.Visibility InspectorVisibility =>
+    /// <summary>抽屉标题：选行联动（Inspector #00142 / 默认 Context Inspector）。</summary>
+    public string InspectorTitle => SelectedUnit is null
+        ? "Context Inspector"
+        : $"Inspector {SelectedUnit.LineNumberTag}";
+
+    /// <summary>抽屉宽度：展开 280 / 折叠 32（停靠条，常驻再展开把手）。</summary>
+    public double InspectorWidth => IsInspectorOpen ? 280 : 32;
+
+    public System.Windows.Visibility InspectorContentVisibility =>
         IsInspectorOpen ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    public System.Windows.Visibility InspectorCollapseVisibility =>
+        IsInspectorOpen ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    public System.Windows.Visibility InspectorExpandVisibility =>
+        IsInspectorOpen ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
 
     public System.Windows.Visibility InspectorEmptyVisibility =>
         IsInspectorOpen && SelectedUnit is null
@@ -106,6 +124,8 @@ public sealed partial class StudioViewModel : ObservableObject, IDisposable
             : $"{Path.GetFileName(CurrentFilePath)} · {TotalCount} 行";
 
     partial void OnIsBusyChanged(bool value) => OnPropertyChanged(nameof(IsIdle));
+    partial void OnStatusMessageChanged(string value) => PublishMetrics();
+
     partial void OnTotalCountChanged(int value)
     {
         OnPropertyChanged(nameof(PendingCount));
@@ -128,7 +148,10 @@ public sealed partial class StudioViewModel : ObservableObject, IDisposable
     partial void OnCurrentFilePathChanged(string value) => OnPropertyChanged(nameof(FileStatusLabel));
     partial void OnIsInspectorOpenChanged(bool value)
     {
-        OnPropertyChanged(nameof(InspectorVisibility));
+        OnPropertyChanged(nameof(InspectorWidth));
+        OnPropertyChanged(nameof(InspectorContentVisibility));
+        OnPropertyChanged(nameof(InspectorCollapseVisibility));
+        OnPropertyChanged(nameof(InspectorExpandVisibility));
         OnPropertyChanged(nameof(InspectorEmptyVisibility));
         OnPropertyChanged(nameof(InspectorSelectedVisibility));
     }
@@ -139,6 +162,7 @@ public sealed partial class StudioViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(InspectorSelectedVisibility));
         OnPropertyChanged(nameof(DurationLabel));
         OnPropertyChanged(nameof(CompLabel));
+        OnPropertyChanged(nameof(InspectorTitle));
         RebuildInspector(value);
     }
 
@@ -150,6 +174,62 @@ public sealed partial class StudioViewModel : ObservableObject, IDisposable
     {
         UnitsView = CollectionViewSource.GetDefaultView(Units);
         UnitsView.Filter = FilterUnit;
+
+        // 默认注入演示数据：彻底解决开局中央表格空态塌陷（对照设计稿首屏）
+        LoadDemoUnits();
+    }
+
+    /// <summary>内置演示行：正常对白 / 宏标签行 / 1 条 Quote mismatch 的 LQA_FAILED。</summary>
+    private void LoadDemoUnits()
+    {
+        Units.Clear();
+        var rows = new (int Id, string Speaker, string Source, string Target, string? Macro, string Status, string? Issue)[]
+        {
+            (142, "Akira", "僕の返事はもう決まっていたはずです。", "我的回答原本早就已经定好了。", null, "LQA_FAILED", "Quote mismatch: Missing closed quote"),
+            (143, "Akira", "昨日のこと、本当に楽しかったよね。", "昨天的事情，真的很开心呢。", "wait:300ms", "LQA_PASSED", null),
+            (144, "Akira", "空を見上げると、一面の星空が広がっていた。", "仰望天空，满天繁星若隐若现。", null, "LQA_PASSED", null),
+            (145, "Mei", "どうしてそんな寂しい顔をするの？", "为什么露出那么落寞的表情？", "wait:300ms", "LQA_PASSED", null),
+            (146, "Mei", "約束したよね、必ず帰ってくるって。", "明明约定过，一定会回来的。", null, "LQA_PASSED", null),
+            (147, "Narrator", "風が二人の間を静かに吹き抜けていく。", "微风悄无声息地穿过二人之间。", "wait:300ms", "LQA_PASSED", null),
+            (148, "Akira", "ああ、覚えているよ。", "啊啊，我还记得呢。", null, "LQA_PASSED", null),
+            (149, "Mei", "本当？嘘ついたら怒るからね。", "真的？要是撒谎我可是会生气的。", "wait:300ms", "LQA_PASSED", null),
+            (150, "Akira", "絶対に嘘なんてつかないさ。", "我绝对不会撒谎的。", null, "EXTRACTED", null),
+            (151, "Narrator", "彼女の手が、そっと僕の指先に触れた。", "她的手，轻轻触碰到了我的指尖。", "wait:300ms", "EXTRACTED", null),
+            (152, "Akira", "温かい……これが現実なんだ。", "好温暖……这就是现实啊。", null, "EXTRACTED", null),
+            (153, "Mei", "行こう、みんなが待っている場所へ。", "走吧，去往大家都在等待的地方。", "wait:300ms", "EXTRACTED", null),
+        };
+
+        foreach (var row in rows)
+        {
+            List<AtomicTagDto> tags = string.IsNullOrEmpty(row.Macro)
+                ? []
+                : [new AtomicTagDto(TagId: "macro", RawTag: $"<{row.Macro}>", Position: 0)];
+
+            Dictionary<string, JsonElement>? metadata = null;
+            if (!string.IsNullOrEmpty(row.Issue))
+            {
+                using var doc = JsonDocument.Parse(
+                    $"[{{\"severity\":\"error\",\"message\":\"{row.Issue}\"}}]");
+                metadata = new Dictionary<string, JsonElement>
+                {
+                    ["lqa_issues"] = doc.RootElement.Clone(),
+                };
+            }
+
+            Units.Add(new StudioUnitItemViewModel(new TranslationUnitDto(
+                Id: $"unit-{row.Id:00000}",
+                Speaker: row.Speaker,
+                RawText: row.Source,
+                ExtractedText: row.Source,
+                AtomicTags: [.. tags],
+                PairedTags: [],
+                TranslatedText: row.Target,
+                Status: row.Status,
+                Metadata: metadata)));
+        }
+
+        SelectedUnit = Units.FirstOrDefault();
+        RefreshProgress();
     }
 
     private bool FilterUnit(object item)
@@ -182,9 +262,24 @@ public sealed partial class StudioViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void SetFilter(string? mode) => FilterMode = string.IsNullOrWhiteSpace(mode) ? "All" : mode;
 
-    /// <summary>载入剧本：detect 认领后 extract 填充审校表格。</summary>
+    /// <summary>打开文件选择器（*.ks / *.txt），选定后走统一载入链。</summary>
     [RelayCommand]
-    private async Task LoadFileAsync(string? path)
+    private async Task OpenFilePickerAsync()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "Galgame Script (*.ks;*.txt)|*.ks;*.txt|All files (*.*)|*.*",
+            Title = "选择剧本文件",
+        };
+        if (dialog.ShowDialog() == true)
+        {
+            await LoadFileAsync(dialog.FileName);
+        }
+    }
+
+    /// <summary>载入剧本（公开命令，支持文件选择器与拖放复用）。</summary>
+    [RelayCommand]
+    public async Task LoadFileAsync(string? path)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
         {
@@ -211,6 +306,7 @@ public sealed partial class StudioViewModel : ObservableObject, IDisposable
             SelectedUnit = Units.FirstOrDefault();
             UnitsView.Refresh();
             RefreshProgress();
+            PublishMetrics();
             StatusMessage = $"已加载 {envelope.UnitCount} 条可译文本（引擎：{detect.Adapter}）。";
         });
     }
@@ -228,7 +324,7 @@ public sealed partial class StudioViewModel : ObservableObject, IDisposable
             .ToList();
         if (targets.Count == 0)
         {
-            StatusMessage = "没有待翻译单元（均已通过质检）。";
+            StatusMessage = "没有待翻译单元。";
             return;
         }
         await RunBusyAsync(async () =>
@@ -250,10 +346,8 @@ public sealed partial class StudioViewModel : ObservableObject, IDisposable
             }
             RefreshProgress();
             LatencyText = $"Latency: {stopwatch.ElapsedMilliseconds:#,0}ms";
-            StatusMessage =
-                $"批次完成：{updated.Count(u => u.Status == "LQA_PASSED")} 通过，"
-                + $"{updated.Count(u => u.Status == "LQA_FAILED")} 待返工"
-                + $"（端点：{TranslateApiBase}）。";
+            PublishMetrics();
+            StatusMessage = $"批次完成：{updated.Count(u => u.Status == "LQA_PASSED")} 通过。";
         });
     }
 
@@ -281,14 +375,14 @@ public sealed partial class StudioViewModel : ObservableObject, IDisposable
         });
     }
 
-    /// <summary>导出回写：以行 VM 的最新 Model 重建项目信封（既定教训：抽取期
-    /// 快照不含批量译文与人工微调），经 ir_to_asset 原位还原为游戏脚本。</summary>
+    /// <summary>导出回写：以行 VM 的最新 Model 重建项目信封（既定教训），经
+    /// ir_to_asset 原位还原为游戏脚本；Demo 数据无真实工程信封，须先载入文件。</summary>
     [RelayCommand]
     private async Task ExportScriptAsync()
     {
         if (_currentProject is null)
         {
-            StatusMessage = "尚未载入任何剧本，无法导出。";
+            StatusMessage = "当前为演示数据，请先通过「打开」载入外部剧本。";
             return;
         }
         await RunBusyAsync(async () =>
@@ -337,7 +431,11 @@ public sealed partial class StudioViewModel : ObservableObject, IDisposable
         PassedCount = passed;
         FailedCount = failed;
         ProgressPercent = total == 0 ? 0 : Math.Round((passed + failed) * 100.0 / total, 1);
+        PublishMetrics();
     }
+
+    private void PublishMetrics() =>
+        MetricsSink?.Invoke(FileStatusLabel, $"{TokenUsageText} · {LatencyText}");
 
     /// <summary>情境审查抽屉数据：按单元 id 确定性生成（同单元同数据，可复现）。</summary>
     private void RebuildInspector(StudioUnitItemViewModel? unit)
@@ -350,19 +448,12 @@ public sealed partial class StudioViewModel : ObservableObject, IDisposable
         }
         var seed = unit.Id.Aggregate(17, (acc, c) => acc * 31 + c);
         var rng = new Random(seed);
-        foreach (var height in Enumerable.Range(0, 28).Select(_ => rng.Next(8, 56)))
+        foreach (var height in Enumerable.Range(0, 28).Select(_ => rng.Next(10, 48)))
         {
             WaveformBars.Add(height);
         }
-        foreach (var gloss in new[]
-                 {
-                     "学園祭 → 学园祭 [Verified]",
-                     "生徒会 → 学生会 [Verified]",
-                     "風紀 → 风纪委员 [Verified]",
-                 })
-        {
-            GlossaryItems.Add(gloss);
-        }
+        GlossaryItems.Add("学園祭 → 学园祭 [Verified]");
+        GlossaryItems.Add("生徒会 → 学生会 [Verified]");
     }
 
     /// <summary>语音物理时长（确定性占位：1200~2600ms）。</summary>

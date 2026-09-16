@@ -15,9 +15,12 @@ public sealed record MacroPill(string Text);
 /// </summary>
 public sealed partial class StudioUnitItemViewModel : ObservableObject
 {
-    private static readonly Brush PassedBrush = new SolidColorBrush(Color.FromRgb(0x2E, 0xA0, 0x4E));
-    private static readonly Brush FailedBrush = new SolidColorBrush(Color.FromRgb(0xD9, 0x3F, 0x4B));
-    private static readonly Brush PendingBrush = new SolidColorBrush(Color.FromRgb(0x8A, 0x8A, 0x8A));
+    private static readonly Brush PassedBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x3A, 0x2F));
+    private static readonly Brush FailedBrush = new SolidColorBrush(Color.FromRgb(0x3D, 0x1C, 0x24));
+    private static readonly Brush DraftBrush = new SolidColorBrush(Color.FromRgb(0x24, 0x24, 0x24));
+    private static readonly Brush PassedForeground = new SolidColorBrush(Color.FromRgb(0x4A, 0xDE, 0x80));
+    private static readonly Brush FailedForeground = new SolidColorBrush(Color.FromRgb(0xF8, 0x71, 0x71));
+    private static readonly Brush DraftForeground = new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF));
 
     private static readonly Brush[] SpeakerPalette =
     [
@@ -78,7 +81,15 @@ public sealed partial class StudioUnitItemViewModel : ObservableObject
     public bool IsPassed => Status == "LQA_PASSED";
     public bool IsPending => Status is not ("LQA_PASSED" or "LQA_FAILED");
 
-    public Brush StatusBrush => IsFailed ? FailedBrush : IsPassed ? PassedBrush : PendingBrush;
+    public Brush StatusBrush =>
+        IsFailed ? FailedBrush : IsPassed ? PassedBrush : DraftBrush;
+
+    public Brush StatusForeground =>
+        IsFailed ? FailedForeground : IsPassed ? PassedForeground : DraftForeground;
+
+    /// <summary>胶囊文案（严禁裸露后端枚举）：✓ Passed / ⊗ Failed / Draft。</summary>
+    public string StatusDisplay =>
+        IsPassed ? "✓ Passed" : IsFailed ? "⊗ Failed" : "Draft";
 
     /// <summary>首条 error 级违例消息（Failed 行的异常气泡 Tooltip）。</summary>
     public string? IssueTooltip
@@ -112,6 +123,8 @@ public sealed partial class StudioUnitItemViewModel : ObservableObject
     partial void OnStatusChanged(string value)
     {
         OnPropertyChanged(nameof(StatusBrush));
+        OnPropertyChanged(nameof(StatusForeground));
+        OnPropertyChanged(nameof(StatusDisplay));
         OnPropertyChanged(nameof(IsFailed));
         OnPropertyChanged(nameof(IsPassed));
         OnPropertyChanged(nameof(IsPending));

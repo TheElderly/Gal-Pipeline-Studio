@@ -26,6 +26,19 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public partial string TokenUsageText { get; set; } = "Token 消耗：0（本次会话）";
 
     [ObservableProperty]
+    public partial string StudioFileLabel { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string StudioMetricsLabel { get; set; } = string.Empty;
+
+    /// <summary>接收 Studio 侧通报（文件行数 / Token / Latency），汇入主窗底栏。</summary>
+    public void PublishStudioMetrics(string fileLabel, string metrics)
+    {
+        StudioFileLabel = fileLabel;
+        StudioMetricsLabel = metrics;
+    }
+
+    [ObservableProperty]
     public partial string CurrentPageTitle { get; set; } = "Studio 剧本工坊";
 
     /// <summary>应用启动探活：拉起 Sidecar 并验证 JSON-RPC 通道，点亮状态栏。</summary>

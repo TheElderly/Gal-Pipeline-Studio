@@ -34,3 +34,5 @@
 2. **模块研发**：专业子 Agent 在其独立上下文中编写代码并本地调试；
 3. **本地自测**：执行 `pytest tests/` 或 `dotnet build` 保证 100% 通过；
 4. **验收发布**：由 `git-releaser` 执行测试验收、暂存提交、打上 SemVer Tag 并推送至 GitHub 远端仓库。
+## 当前交接状态索引
+- 新接手本项目的 AI 请先完整阅读 [docs/AI_HANDOFF.md](docs/AI_HANDOFF.md)，严格遵守无 GUI 测试纪律，按文档指引继续推进。

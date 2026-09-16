@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -5,7 +6,7 @@ using GalPipeline.Desktop.ViewModels;
 
 namespace GalPipeline.Desktop.Views;
 
-/// <summary>Studio 工坊宿主：Ctrl+F 聚焦搜索，译文失焦即回写 DTO。</summary>
+/// <summary>Studio 工坊宿主：Ctrl+F 聚焦搜索，译文失焦回写 DTO，支持剧本拖入。</summary>
 public partial class StudioView : UserControl
 {
     public StudioView()
@@ -31,6 +32,19 @@ public partial class StudioView : UserControl
         if (sender is TextBox textBox)
         {
             (textBox.DataContext as StudioUnitItemViewModel)?.CommitEdits();
+        }
+    }
+
+    /// <summary>文件拖入：提取首个文件路径并走统一载入链（Detect → Extract）。</summary>
+    private async void OnStudioViewDrop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            var files = (string[]?)e.Data.GetData(DataFormats.FileDrop);
+            if (files is { Length: > 0 } && DataContext is StudioViewModel vm)
+            {
+                await vm.LoadFileCommand.ExecuteAsync(files[0]);
+            }
         }
     }
 }
