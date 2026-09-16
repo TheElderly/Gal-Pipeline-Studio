@@ -38,7 +38,7 @@
                 PaneDisplayMode="Left"
                 OpenPaneLength="230"
                 IsBackButtonVisible="Collapsed"
-                SelectionChanged="OnNavigationSelectionChanged">
+                PreviewMouseLeftButtonUp="OnPaneMouseUp">
                 <ui:NavigationView.MenuItems>
                     <ui:NavigationViewItem
                         Tag="studio"

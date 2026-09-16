@@ -1,7 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using GalPipeline.Desktop.Pages;
+using GalPipeline.Desktop.Services;
 using GalPipeline.Desktop.ViewModels;
 using Wpf.Ui.Controls;
 
@@ -15,6 +17,8 @@ public sealed partial class MainWindow : FluentWindow
     public MainWindow()
     {
         InitializeComponent();
+        // 选中/调用依赖 TargetPageType + 页面服务（缺服务时点击选择会被回退）
+        RootNavigation.SetPageProviderService(new PageProviderService());
         DataContext = _vm;
         Loaded += OnLoaded;
         Closed += (_, _) => _vm.Dispose();
@@ -22,22 +26,53 @@ public sealed partial class MainWindow : FluentWindow
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // SelectedItem 的 setter 受保护：经条目自身 IsSelected 触发选中路由
-        // （NavigationViewItem : ListViewItem，IsSelected 可写），统一走导航链。
-        RootNavigation.MenuItems
-            .OfType<NavigationViewItem>()
-            .First(item => (string?)item.Tag == "studio")
-            .IsActive = true;
+        // WPF-UI 4.3 的 NavigationViewItem 点击事件链（ItemInvoked /
+        // SelectionChanged）在本宿主下不触发（实测探针无日志），
+        // 故导航统一由 OnPaneMouseUp 命中测试驱动；启动以首槽等效打开。
+        NavigateTo("studio");
+        MarkActive("studio");
         await _vm.InitializeAsync();
     }
 
-    /// <summary>导航槽切换：按 Tag 路由到对应页并同步状态栏页标题。</summary>
-    private void OnNavigationSelectionChanged(NavigationView sender, RoutedEventArgs args)
+    /// <summary>
+    /// 侧栏命中路由：MouseUp（冒泡）在 NavigationView 上必然触达，
+    /// 对命中点做可视树上溯，找到 NavigationViewItem 即导航。
+    /// </summary>
+    private void OnPaneMouseUp(object sender, MouseButtonEventArgs e)
     {
-        if (sender.SelectedItem is not NavigationViewItem { Tag: string tag })
+        var navigationView = (NavigationView)sender;
+        var origin = e.GetPosition(navigationView);
+        var hit = VisualTreeHelper.HitTest(navigationView, origin);
+        if (hit?.VisualHit is null)
         {
             return;
         }
+        DependencyObject? current = hit.VisualHit;
+        while (current is not null)
+        {
+            if (current is NavigationViewItem { Tag: string tag })
+            {
+                NavigateTo(tag);
+                MarkActive(tag);
+                return;
+            }
+            current = current is Visual or System.Windows.Media.Media3D.Visual3D
+                ? VisualTreeHelper.GetParent(current)
+                : LogicalTreeHelper.GetParent(current);
+        }
+    }
+
+    private void MarkActive(string tag)
+    {
+        foreach (var item in RootNavigation.MenuItems.OfType<NavigationViewItem>()
+                     .Concat(RootNavigation.FooterMenuItems.OfType<NavigationViewItem>()))
+        {
+            item.IsActive = (string?)item.Tag == tag;
+        }
+    }
+
+    private void NavigateTo(string tag)
+    {
         Page page = tag switch
         {
             "studio" => new StudioPage(),
