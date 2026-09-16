@@ -1,0 +1,187 @@
+<UserControl
+    x:Class="GalPipeline.Desktop.Views.StudioView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+
+    <!--
+        双栏流式审校表格：ListView 默认 VirtualizingStackPanel 承载大数据量；
+        左栏 原文/译文对照（译文可直接编辑，LostFocus 回写 DTO），
+        右栏 宏标记摘要 + LQA 状态徽章 + 警告计数。
+        占位符使用 ui:TextBox.PlaceholderText（WPF-UI 直属属性）。
+    -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 工具栏：载入 + 翻译触发（默认环回 Mock） -->
+        <Grid Grid.Row="0" Margin="16,12,16,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <ui:TextBox
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                PlaceholderText="拖入或输入 .ks 剧本文件路径"
+                Text="{Binding CurrentFilePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0">
+                <Button
+                    Content="载入剧本"
+                    Margin="0,0,8,0"
+                    Command="{Binding LoadFileCommand}"
+                    CommandParameter="{Binding CurrentFilePath, Mode=OneWay}" />
+                <ui:TextBox
+                    Width="220"
+                    VerticalAlignment="Center"
+                    PlaceholderText="翻译端点（默认环回 Mock）"
+                    ToolTip="默认指向本地环回 Mock（tests/fixtures/mock_llm_server.py），零额度离线演练"
+                    Text="{Binding TranslateApiBase, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <Button
+                    Content="开始批量翻译"
+                    Margin="8,0,0,0"
+                    IsEnabled="{Binding IsIdle, Mode=OneWay}"
+                    Command="{Binding TranslateBatchCommand}" />
+            </StackPanel>
+        </Grid>
+
+        <!-- 进度 + 导出 -->
+        <Grid Grid.Row="1" Margin="16,8,16,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <ProgressBar
+                Grid.Column="0"
+                Height="6"
+                VerticalAlignment="Center"
+                Maximum="100"
+                Value="{Binding ProgressPercent, Mode=OneWay}" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <TextBlock
+                    Margin="12,0,0,0"
+                    VerticalAlignment="Center"
+                    Text="{Binding ProgressLabel, Mode=OneWay}" />
+                <ui:TextBox
+                    Width="200"
+                    Margin="12,0,0,0"
+                    VerticalAlignment="Center"
+                    PlaceholderText="导出目录"
+                    Text="{Binding ExportDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <Button
+                    Content="导出回写"
+                    Margin="8,0,0,0"
+                    IsEnabled="{Binding IsIdle, Mode=OneWay}"
+                    Command="{Binding ExportScriptCommand}" />
+            </StackPanel>
+        </Grid>
+
+        <!-- 双栏审校表格（虚拟化） -->
+        <ListView
+            Grid.Row="2"
+            Margin="16,4,16,4"
+            ItemsSource="{Binding Units, Mode=OneWay}"
+            SelectionMode="Single"
+            BorderBrush="{DynamicResource TextFillColorSecondaryBrush}"
+            BorderThickness="0,1,0,1"
+            VirtualizingPanel.VirtualizationMode="Standard">
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <Grid Margin="0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="200" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- 左栏：说话人 + 原文/译文对照 -->
+                        <Grid Grid.Column="0" Margin="0,0,12,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="72" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock
+                                Grid.Column="0"
+                                Text="{Binding Speaker}"
+                                FontWeight="SemiBold"
+                                VerticalAlignment="Top"
+                                Visibility="{Binding SpeakerVisibility}" />
+                            <StackPanel Grid.Column="1">
+                                <TextBlock
+                                    Text="{Binding SourceText}"
+                                    TextWrapping="Wrap"
+                                    Opacity="0.85"
+                                    Margin="0,0,0,6" />
+                                <TextBox
+                                    Text="{Binding TranslatedText, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                    TextWrapping="Wrap"
+                                    AcceptsReturn="False"
+                                    MinHeight="30"
+                                    LostFocus="OnTranslationLostFocus" />
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- 右栏：宏标记摘要 + LQA 状态 -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Border
+                                Width="110"
+                                MinHeight="30"
+                                Padding="8,4"
+                                VerticalAlignment="Top"
+                                BorderBrush="{DynamicResource TextFillColorSecondaryBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4">
+                                <TextBlock
+                                    Text="{Binding MacroSummary}"
+                                    FontFamily="Consolas"
+                                    FontSize="11"
+                                    TextWrapping="Wrap"
+                                    ToolTip="登记宏标记（回写时逐字节复写）" />
+                            </Border>
+                            <Border
+                                Margin="8,0,0,0"
+                                Padding="10,4"
+                                VerticalAlignment="Top"
+                                CornerRadius="4"
+                                Background="{Binding StatusBrush}">
+                                <TextBlock Text="{Binding Status}" FontSize="11" />
+                            </Border>
+                            <TextBlock
+                                Margin="8,2,0,0"
+                                FontSize="11"
+                                VerticalAlignment="Top"
+                                Text="{Binding WarningLabel}" />
+                        </StackPanel>
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <!-- 底部状态行 -->
+        <Border
+            Grid.Row="3"
+            Padding="16,8"
+            BorderBrush="{DynamicResource TextFillColorSecondaryBrush}"
+            BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock
+                    Grid.Column="0"
+                    Text="{Binding StatusMessage, Mode=OneWay}"
+                    TextTrimming="CharacterEllipsis"
+                    VerticalAlignment="Center" />
+                <TextBlock
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                    Text="批量翻译默认指向本地环回 Mock（零额度离线演练）" />
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>
