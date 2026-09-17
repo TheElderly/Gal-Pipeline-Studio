@@ -1,5 +1,6 @@
 <UserControl
     x:Class="GalPipeline.Desktop.Views.StudioView"
+    x:Name="StudioRoot"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
@@ -8,10 +9,16 @@
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
 
-        <!-- 筛选胶囊单选样式（Fluent 2 Pill：无边框深色圆角，选中态高亮） -->
+        <!-- 波形柱体渐变：顶部亮蓝 → 底部微暗蓝（替换纯色柱状图，工业听感条质感） -->
+        <LinearGradientBrush x:Key="WaveformBarBrush" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Offset="0" Color="#38BDF8" />
+            <GradientStop Offset="1" Color="#1E40AF" />
+        </LinearGradientBrush>
+
+        <!-- 筛选胶囊单选样式（Fluent 2 Pill：**常驻深灰底** + 选中态 Accent 实底白字） -->
         <Style x:Key="PillRadioStyle" TargetType="RadioButton">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Setter Property="Background" Value="#2A2A2A" />
+            <Setter Property="Foreground" Value="#E8E8E8" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="14,4" />
             <Setter Property="FontSize" Value="12" />
@@ -36,7 +43,7 @@
                                     <Condition Property="IsMouseOver" Value="True" />
                                     <Condition Property="IsChecked" Value="False" />
                                 </MultiTrigger.Conditions>
-                                <Setter TargetName="BorderRoot" Property="Background" Value="#2A2A2A" />
+                                <Setter TargetName="BorderRoot" Property="Background" Value="#3A3A3C" />
                             </MultiTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -67,57 +74,99 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <!-- 搜索（Ctrl+F）：驱动 UnitsView 过滤（行号/原文/译文/说话人） -->
-                <ui:TextBox
-                    Grid.Column="0"
-                    Width="190"
-                    x:Name="SearchBox"
-                    PlaceholderText="Search line / Ctrl+F"
-                    Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <!-- 搜索（Ctrl+F）：驱动 UnitsView 过滤（行号/原文/译文/说话人）；右侧内嵌放大镜 -->
+                <Grid Grid.Column="0" Width="210">
+                    <ui:TextBox
+                        x:Name="SearchBox"
+                        Padding="12,6,32,6"
+                        PlaceholderText="Search line / Ctrl+F"
+                        Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <ui:SymbolIcon
+                        Margin="0,0,10,0"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Symbol="Search24"
+                        FontSize="14"
+                        Foreground="#8A8A8A"
+                        IsHitTestVisible="False" />
+                </Grid>
 
-                <!-- 主命令组：打开 / 批量翻译（EXTRACTED+LQA_FAILED）/ 导出（CommitEdits 后重建信封） -->
+                <!-- 主命令组（对齐设计稿：紧凑两段式）：Batch Translate 升级为 SplitButton，
+                     ⌄ 独立分段弹出次级入口（打开剧本 / 导出并编译），不再占用主命令组版面。 -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="10,0,0,0">
-                    <ui:Button
-                        Appearance="Secondary"
-                        Icon="{ui:SymbolIcon Symbol=FolderOpen24}"
-                        Content="打开"
-                        Command="{Binding OpenFilePickerCommand}"
-                        ToolTip="选择外部 .ks 剧本文件（支持直接拖入窗口）" />
-                    <ui:Button
-                        Margin="6,0,0,0"
-                        Appearance="Primary"
+                    <ui:SplitButton
+                        x:Name="BatchTranslateSplit"
+                        Background="{DynamicResource AccentFillColorDefaultBrush}"
                         Content="{Binding BatchTranslateLabel, Mode=OneWay}"
-                        IsEnabled="{Binding IsIdle, Mode=OneWay}"
+                        IsEnabled="{Binding CanTranslateBatch, Mode=OneWay}"
                         Command="{Binding TranslateBatchCommand}"
-                        ToolTip="默认指向本地环回 Mock（127.0.0.1:18080/v1），零额度离线演练" />
+                        ToolTip="默认指向本地环回 Mock（127.0.0.1:18080/v1），零额度离线演练">
+                        <ui:SplitButton.Flyout>
+                            <ui:Flyout>
+                                <!-- Popup 位于独立可视树：显式锚回 UserControl 的 DataContext，避免命令绑定落空 -->
+                                <StackPanel
+                                    MinWidth="190"
+                                    DataContext="{Binding DataContext, ElementName=StudioRoot}">
+                                    <ui:Button
+                                        Appearance="Transparent"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Left"
+                                        Icon="{ui:SymbolIcon Symbol=FolderOpen24}"
+                                        Content="打开剧本…"
+                                        Command="{Binding OpenFilePickerCommand}"
+                                        ToolTip="选择外部 .ks 剧本文件（也可直接拖入窗口）" />
+                                    <ui:Button
+                                        Margin="0,4,0,0"
+                                        Appearance="Transparent"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Left"
+                                        Icon="{ui:SymbolIcon Symbol=Folder24}"
+                                        Content="打开游戏目录…"
+                                        Command="{Binding OpenDirectoryPickerCommand}"
+                                        ToolTip="整作工程模式：自动识别引擎并生成剧本树（也可直接拖入游戏根目录）" />
+                                    <ui:Button
+                                        Margin="0,4,0,0"
+                                        Appearance="Transparent"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Left"
+                                        Icon="{ui:SymbolIcon Symbol=Document24}"
+                                        Content="导出并编译…"
+                                        Command="{Binding ExportScriptCommand}" />
+                                </StackPanel>
+                            </ui:Flyout>
+                        </ui:SplitButton.Flyout>
+                    </ui:SplitButton>
                     <ui:Button
                         Margin="6,0,0,0"
-                        Appearance="Secondary"
+                        Appearance="Light"
                         Content="Export &amp; Compile"
                         IsEnabled="{Binding IsIdle, Mode=OneWay}"
                         Command="{Binding ExportScriptCommand}" />
                 </StackPanel>
 
-                <!-- 筛选胶囊栏（RadioButton 驱动 FilterMode） -->
+                <!-- 筛选胶囊栏（RadioButton 驱动 FilterMode；容器透明，胶囊各自带常驻深灰底） -->
                 <Border
                     Grid.Column="2"
                     Margin="16,0,0,0"
-                    Padding="2"
-                    Background="#1C1C1C"
+                    Padding="0"
+                    Background="Transparent"
                     CornerRadius="14">
                     <StackPanel Orientation="Horizontal">
                         <RadioButton
+                            x:Name="FilterAll"
                             Content="All"
                             IsChecked="True"
                             Style="{StaticResource PillRadioStyle}"
                             Command="{Binding SetFilterCommand}"
                             CommandParameter="All" />
                         <RadioButton
+                            x:Name="FilterPending"
                             Content="Pending"
                             Style="{StaticResource PillRadioStyle}"
                             Command="{Binding SetFilterCommand}"
                             CommandParameter="Pending" />
                         <RadioButton
+                            x:Name="FilterFailed"
                             Content="Failed"
                             Style="{StaticResource PillRadioStyle}"
                             Command="{Binding SetFilterCommand}"
@@ -125,34 +174,127 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 进度：Passed/(Total) 比例 -->
+                <!-- 进度：译文覆盖率（已有译文的行 / 总行数），随载入、逐片回填、人工微调实时响应 -->
                 <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
                     <ProgressBar
-                        Width="120"
-                        Height="4"
-                        Maximum="100"
-                        Value="{Binding ProgressPercent, Mode=OneWay}" />
+                        Width="170"
+                        Height="5"
+                        Maximum="1"
+                        Foreground="{DynamicResource AccentFillColorDefaultBrush}"
+                        Value="{Binding TranslationProgressRatio, Mode=OneWay}" />
                     <TextBlock
                         Margin="8,0,0,0"
                         FontSize="11"
                         Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                        Text="{Binding ProgressPercent, StringFormat={}{0:0}% Translated}" />
+                        Text="{Binding TranslationProgressText, Mode=OneWay}" />
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- Row1 核心工作区：表头 + 虚拟化数据网格 + 右侧抽屉（支持拖入剧本） -->
+        <!-- Row1 核心工作区：工程树（整作模式）+ 表头 + 虚拟化数据网格 + 右侧抽屉（支持拖入目录/剧本） -->
         <Grid
             Grid.Row="1"
             AllowDrop="True"
             Drop="OnStudioViewDrop">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
+            <!-- 工程树（P1）：剧本列表 + 引擎识别徽章 + 解包引导；单文件模式下整列自动隐藏 -->
+            <Border
+                x:Name="ProjectExplorerPanel"
+                Grid.Column="0"
+                Width="228"
+                Margin="16,8,0,12"
+                Padding="10"
+                CornerRadius="6"
+                Background="#141414"
+                BorderBrush="#252525"
+                BorderThickness="1"
+                Visibility="{Binding ProjectPanelVisibility}">
+                <DockPanel>
+                    <TextBlock
+                        DockPanel.Dock="Top"
+                        Text="PROJECT"
+                        FontSize="11"
+                        FontWeight="SemiBold"
+                        Foreground="#888888"
+                        Margin="2,0,0,8" />
+                    <!-- 引擎识别徽章：类型 + 置信度；Tooltip 展开全部命中特征 -->
+                    <Border
+                        DockPanel.Dock="Top"
+                        Padding="8,4"
+                        CornerRadius="10"
+                        Background="#1C2A44"
+                        Margin="0,0,0,8"
+                        Visibility="{Binding EngineBadgeVisibility}"
+                        ToolTip="{Binding EngineEvidenceSummary}">
+                        <TextBlock
+                            Text="{Binding EngineBadgeText}"
+                            FontSize="11"
+                            Foreground="#7FB2E5"
+                            TextTrimming="CharacterEllipsis" />
+                    </Border>
+                    <!-- 解包引导卡：纯封包盘（识别到引擎但无裸剧本）时亮起 -->
+                    <Border
+                        DockPanel.Dock="Top"
+                        Padding="10"
+                        CornerRadius="8"
+                        Background="#241E12"
+                        BorderBrush="#5A4A22"
+                        BorderThickness="1"
+                        Margin="0,0,0,8"
+                        Visibility="{Binding UnpackPromptVisibility}">
+                        <StackPanel>
+                            <TextBlock
+                                Text="检测到封包资产未提取"
+                                FontSize="12"
+                                FontWeight="SemiBold"
+                                Foreground="#F0C674" />
+                            <TextBlock
+                                Text="一键解包到 .galpipeline/raw/scripts/ 后即可审校"
+                                FontSize="10"
+                                Foreground="#A08A5A"
+                                TextWrapping="Wrap"
+                                Margin="0,2,0,8" />
+                            <ProgressBar
+                                Height="4"
+                                Maximum="1"
+                                Value="{Binding UnpackProgress, Mode=OneWay}"
+                                Visibility="{Binding UnpackWorkingVisibility}" />
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <ui:Button
+                                    Appearance="Primary"
+                                    Content="一键解包"
+                                    Command="{Binding StartUnpackCommand}"
+                                    IsEnabled="{Binding CanStartUnpack}"
+                                    ToolTip="经统一工具链解析解包器（GARbro CLI），逐封包解到 .galpipeline/raw/scripts/" />
+                                <ui:Button
+                                    Margin="8,0,0,0"
+                                    Appearance="Secondary"
+                                    Content="取消"
+                                    Command="{Binding CancelUnpackCommand}"
+                                    Visibility="{Binding UnpackWorkingVisibility}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <ListBox
+                        x:Name="ProjectScriptsList"
+                        ItemsSource="{Binding ProjectScripts}"
+                        DisplayMemberPath="DisplayName"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                        ToolTip="点击切换剧本；切换前会自动保存当前审校修改"
+                        SelectionChanged="OnScriptSelected" />
+                </DockPanel>
+            </Border>
+
             <!-- 表格区：固定表头 + 虚拟化列表（列宽 140 / * / * / 165，两处锁定一致） -->
-            <Grid Grid.Column="0" Margin="16,8,8,12">
+            <Grid Grid.Column="1" Margin="8,8,8,12">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -161,42 +303,43 @@
                 <!-- 固定列头 -->
                 <Border
                     Grid.Row="0"
-                    Padding="12,8"
+                    Padding="5,8"
                     CornerRadius="4,4,0,0"
                     Background="#161616"
                     BorderBrush="#252525"
                     BorderThickness="1,1,1,0">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="168" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="165" />
+                            <ColumnDefinition Width="150" />
                         </Grid.ColumnDefinitions>
                         <TextBlock
                             Grid.Column="0"
                             Text="Line &amp; Speaker"
-                            FontSize="11"
+                            FontSize="10"
                             FontWeight="SemiBold"
                             Foreground="#888888" />
                         <TextBlock
                             Grid.Column="1"
                             Text="Japanese Source"
-                            FontSize="11"
+                            FontSize="10"
                             FontWeight="SemiBold"
                             Foreground="#888888" />
                         <TextBlock
                             Grid.Column="2"
-                            Text="Chinese Target · Inline Editing"
-                            FontSize="11"
+                            Text="Chinese Target · Active Inline Editing"
+                            FontSize="10"
                             FontWeight="SemiBold"
                             TextTrimming="CharacterEllipsis"
                             Foreground="#888888" />
                         <TextBlock
                             Grid.Column="3"
-                            Text="LQA Status &amp; Actions"
-                            FontSize="11"
+                            Text="LQA Status &amp; Quick Actions"
+                            FontSize="10"
                             FontWeight="SemiBold"
+                            TextTrimming="CharacterEllipsis"
                             Foreground="#888888" />
                     </Grid>
                 </Border>
@@ -257,10 +400,10 @@
                                 BorderThickness="0,0,0,1">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="168" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="165" />
+                                        <ColumnDefinition Width="150" />
                                     </Grid.ColumnDefinitions>
 
                                     <!-- 第 1 列：行号（等宽）+ 角色胶囊（哈希着色） -->
@@ -271,24 +414,31 @@
                                             FontSize="11"
                                             Foreground="#777777"
                                             VerticalAlignment="Center" />
+                                        <!-- 角色徽章：全圆角胶囊 + 低饱和暗钢蓝微阶底 + 冷白字（对照设计稿） -->
                                         <Border
+                                            x:Name="SpeakerBadgeCapsule"
                                             Margin="6,0,0,0"
-                                            Padding="6,2"
-                                            CornerRadius="4"
+                                            Padding="7,2"
+                                            CornerRadius="12"
                                             Background="{Binding SpeakerBadgeBrush}">
                                             <TextBlock
-                                                Text="{Binding Speaker}"
+                                                Text="{Binding SpeakerBadge}"
+                                                FontFamily="Consolas"
                                                 FontSize="11"
-                                                Foreground="White" />
+                                                Foreground="{Binding SpeakerBadgeForeground}" />
                                         </Border>
                                     </StackPanel>
 
-                                    <!-- 第 2 列：宏药丸（#4A154B）与正文同行流动 -->
-                                    <WrapPanel
+                                    <!-- 第 2 列：宏药丸**独占一行**（对齐设计稿：药丸在上、原文在下），
+                                         与译文列同为 Top 对齐 + 6px 顶部留白，保证首行基线平齐 -->
+                                    <StackPanel
                                         Grid.Column="1"
-                                        Margin="0,0,10,0"
-                                        VerticalAlignment="Center">
-                                        <ItemsControl ItemsSource="{Binding MacroPills}" Margin="0,0,6,0">
+                                        Margin="0,6,10,6"
+                                        VerticalAlignment="Top">
+                                        <ItemsControl
+                                            Margin="0,0,0,2"
+                                            HorizontalAlignment="Left"
+                                            ItemsSource="{Binding MacroPills}">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
                                                     <StackPanel Orientation="Horizontal" />
@@ -305,7 +455,7 @@
                                                             Text="{Binding Text}"
                                                             FontFamily="Consolas"
                                                             FontSize="10"
-                                                            Foreground="#E9D5FF" />
+                                                            Foreground="#F2E8FF" />
                                                     </Border>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
@@ -313,99 +463,180 @@
                                         <TextBlock
                                             Text="{Binding SourceText}"
                                             FontSize="12"
-                                            MaxWidth="240"
                                             TextWrapping="Wrap"
-                                            Foreground="#D1D5DB"
-                                            VerticalAlignment="Center" />
-                                    </WrapPanel>
+                                            Foreground="#E5E7EB"
+                                            VerticalAlignment="Top" />
+                                    </StackPanel>
 
-                                    <!-- 第 3 列：译文 TextBox 拉伸平铺 + 静默态无边框（聚焦线见样式） + LostFocus 同步 DTO -->
-                                    <ui:TextBox
+                                    <!-- 第 3 列：译文行内编辑。用 2 行 Grid 自绘底线（静默 1px #2F3B4C / 聚焦 2px #3B82F6）。
+                                         严禁在 TextBox 上直接写 BorderBrush —— WPF 优先级是「局部值 > 样式触发器」，
+                                         局部配色会压垮 WPF-UI 自带的焦点高亮触发器（历史缺陷根因）。 -->
+                                    <Grid
                                         Grid.Column="2"
-                                        Margin="4,2"
-                                        HorizontalAlignment="Stretch"
-                                        MinHeight="26"
-                                        Background="Transparent"
-                                        BorderThickness="0,0,0,1"
-                                        BorderBrush="#2F3B4C"
-                                        Text="{Binding TranslatedText, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
-                                        TextWrapping="Wrap"
-                                        LostFocus="OnTranslationLostFocus" />
+                                        Margin="4,0"
+                                        VerticalAlignment="Top">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <ui:TextBox
+                                            x:Name="TranslationBox"
+                                            Grid.Row="0"
+                                            HorizontalAlignment="Stretch"
+                                            VerticalAlignment="Top"
+                                            MinHeight="26"
+                                            Padding="0,6,0,6"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Text="{Binding TranslatedText, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                            TextWrapping="Wrap"
+                                            LostFocus="OnTranslationLostFocus" />
+                                        <!-- 底线叠加层：静默态两条线都不可见（Opacity=0），
+                                             仅聚焦时由触发器渐显 2px 亮蓝发光底线。
+                                             设计纪律：未编辑行必须是无修饰的纯净文本排版。 -->
+                                        <Grid
+                                            Grid.Row="1"
+                                            Height="2"
+                                            VerticalAlignment="Bottom">
+                                            <Border
+                                                x:Name="TranslationUnderlineIdle"
+                                                Height="1"
+                                                VerticalAlignment="Bottom"
+                                                Background="#2F3B4C"
+                                                Opacity="0" />
+                                            <Border
+                                                x:Name="TranslationUnderlineFocus"
+                                                Height="2"
+                                                VerticalAlignment="Bottom"
+                                                Background="#3B82F6"
+                                                Opacity="0">
+                                                <Border.Effect>
+                                                    <DropShadowEffect
+                                                        BlurRadius="8"
+                                                        ShadowDepth="0"
+                                                        Opacity="0.85"
+                                                        Color="#3B82F6" />
+                                                </Border.Effect>
+                                            </Border>
+                                        </Grid>
+                                    </Grid>
 
                                     <!-- 第 4 列：状态字形胶囊 + Re-try + 首条错误气泡 -->
                                     <StackPanel Grid.Column="3" VerticalAlignment="Center">
                                         <StackPanel Orientation="Horizontal">
+                                            <!-- 状态胶囊：全圆角实心高饱和填充 + 纯白字（对照设计稿） -->
                                             <Border
-                                                Padding="8,2"
-                                                CornerRadius="4"
+                                                x:Name="StatusPill"
+                                                Padding="10,4"
+                                                CornerRadius="12"
                                                 Background="{Binding StatusBrush}"
+                                                BorderBrush="{Binding StatusKeylineBrush}"
+                                                BorderThickness="1"
                                                 ToolTip="{Binding IssueTooltip}">
                                                 <TextBlock
                                                     Text="{Binding StatusDisplay}"
-                                                    FontSize="11"
+                                                    FontSize="12"
                                                     Foreground="{Binding StatusForeground}" />
                                             </Border>
                                             <ui:Button
                                                 Margin="8,0,0,0"
-                                                Padding="6,2"
-                                                FontSize="10"
-                                                Appearance="Secondary"
-                                                Content="🔄 Re-try"
+                                                Padding="8,3"
+                                                MinWidth="0"
+                                                FontSize="11"
+                                                Background="#3A3A3C"
+                                                BorderBrush="Transparent"
+                                                BorderThickness="0"
+                                                Foreground="#FFFFFF"
+                                                Icon="{ui:SymbolIcon Symbol=ArrowSync24}"
+                                                Content="Re-try"
                                                 Visibility="{Binding IsFailed, Converter={StaticResource BoolToVisibilityConverter}}"
                                                 Command="{Binding DataContext.RetryUnitCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                 CommandParameter="{Binding}" />
                                         </StackPanel>
-                                        <!-- 首条 error 违例气泡（Quote Mismatch 等，150px 折行省略） -->
+                                        <!-- 首条 error 违例气泡（中性深灰底 + 纯白字，170px 折行省略） -->
                                         <Border
-                                            MaxWidth="150"
+                                            MaxWidth="170"
                                             Margin="0,4,0,0"
-                                            Padding="6,3"
+                                            Padding="8,4"
                                             HorizontalAlignment="Left"
-                                            CornerRadius="4"
-                                            Background="#3A1D24"
+                                            CornerRadius="6"
+                                            Background="#3A3A3C"
                                             Visibility="{Binding HasIssue, Converter={StaticResource BoolToVisibilityConverter}}">
                                             <TextBlock
                                                 Text="{Binding IssueTooltip}"
-                                                FontSize="10"
+                                                FontSize="11"
                                                 TextWrapping="Wrap"
                                                 TextTrimming="CharacterEllipsis"
-                                                Foreground="#F2A4AD" />
+                                                Foreground="#FFFFFF" />
                                         </Border>
                                     </StackPanel>
                                 </Grid>
                             </Border>
+                            <DataTemplate.Triggers>
+                                <!-- 仅聚焦才点亮底线：淡入 120ms / 淡出 180ms；静默与悬停一律不着线，
+                                     保证未编辑行是纯净文本排版（悬停反馈交给行背景，不引入常驻横线）。 -->
+                                <Trigger SourceName="TranslationBox" Property="IsKeyboardFocusWithin" Value="True">
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation
+                                                    Storyboard.TargetName="TranslationUnderlineFocus"
+                                                    Storyboard.TargetProperty="Opacity"
+                                                    To="1"
+                                                    Duration="0:0:0.12" />
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.EnterActions>
+                                    <Trigger.ExitActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation
+                                                    Storyboard.TargetName="TranslationUnderlineFocus"
+                                                    Storyboard.TargetProperty="Opacity"
+                                                    To="0"
+                                                    Duration="0:0:0.18" />
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.ExitActions>
+                                    <Setter TargetName="TranslationUnderlineFocus" Property="Opacity" Value="1" />
+                                </Trigger>
+                            </DataTemplate.Triggers>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
             </Grid>
 
-            <!-- 右侧 Context Inspector 抽屉（可折叠，选行联动） -->
-            <Border
-                Grid.Column="1"
-                Width="280"
+            <!-- 右侧 Inspector：**双卡拆分**（Context 卡 / Glossary Matches 卡），卡间透出深色底板 -->
+            <StackPanel
+                Grid.Column="2"
+                Width="{Binding InspectorWidth}"
                 Margin="0,8,16,12"
-                Padding="14"
-                CornerRadius="6"
-                Background="#141414"
-                BorderBrush="#252525"
-                BorderThickness="1"
-                Visibility="{Binding InspectorVisibility}">
-                <StackPanel>
-                    <Grid Margin="0,0,0,12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <ui:TextBlock
-                            Grid.Column="0"
-                            FontTypography="Subtitle"
-                            Text="{Binding InspectorTitle}" />
-                        <ui:Button
-                            Grid.Column="1"
-                            Appearance="Transparent"
-                            Icon="{ui:SymbolIcon Symbol=ChevronRight24}"
-                            Command="{Binding ToggleInspectorCommand}" />
-                    </Grid>
+                Visibility="{Binding InspectorContentVisibility}">
+
+                <!-- 卡 1：Context -->
+                <Border
+                    x:Name="InspectorContextCard"
+                    Padding="14"
+                    CornerRadius="12"
+                    Background="#222427"
+                    BorderBrush="#34383C"
+                    BorderThickness="1">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,12">
+                            <ui:TextBlock
+                                FontTypography="BodyStrong"
+                                Text="{Binding InspectorTitle}" />
+                            <!-- 折叠：纯裸箭头（显式透明底 + 零边框，彻底剔除实框） -->
+                            <ui:Button
+                                HorizontalAlignment="Right"
+                                MinWidth="0"
+                                Padding="4"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Icon="{ui:SymbolIcon Symbol=ChevronDown24}"
+                                Command="{Binding ToggleInspectorCommand}"
+                                ToolTip="折叠 Inspector" />
+                        </Grid>
 
                     <ui:TextBlock
                         FontTypography="Body"
@@ -415,101 +646,317 @@
                         Visibility="{Binding InspectorEmptyVisibility}" />
 
                     <StackPanel Visibility="{Binding InspectorSelectedVisibility}">
-                        <ui:TextBlock
-                            FontTypography="BodyStrong"
-                            Text="{Binding SelectedUnit.LineNumberTag}"
-                            Margin="0,0,0,8" />
+                        <!-- 标题已单行化为 Inspector #00012（见 InspectorTitle），此处不再重复渲染行号 -->
 
-                        <!-- 角色立绘占位 -->
-                        <Border Height="130" CornerRadius="4" Background="#1E293B">
-                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                <ui:SymbolIcon
-                                    Symbol="Person48"
-                                    FontSize="36"
-                                    Foreground="#64748B" />
+                        <!-- 角色立绘差分卡（3:4）：无图资产时不引入任何外部图源，
+                             以十字校准网格 + 虚线内描边 + 四角标构成「待挂差分」的工业质感 -->
+                        <!-- 立绘差分卡：本地程序化生成的占位图（严禁改为联网图源 —— 离线红线）。
+                             真实立绘就位后，直接替换 Assets/character-standing-placeholder.png 同名文件即可。 -->
+                        <Grid
+                            Height="244"
+                            HorizontalAlignment="Stretch">
+                            <!-- 圆角图填充：Image 本身不裁圆角，必须走 Rectangle + ImageBrush -->
+                            <Rectangle RadiusX="10" RadiusY="10">
+                                <Rectangle.Fill>
+                                    <ImageBrush
+                                        ImageSource="/Assets/character-standing-placeholder.png"
+                                        Stretch="UniformToFill" />
+                                </Rectangle.Fill>
+                            </Rectangle>
+                            <!-- 外描边 -->
+                            <Rectangle
+                                RadiusX="10"
+                                RadiusY="10"
+                                Stroke="#2E3A4E"
+                                StrokeThickness="1" />
+                            <!-- 十字校准网格（微弱，叠在图上仅提示取景中心） -->
+                            <Rectangle
+                                Height="1"
+                                VerticalAlignment="Center"
+                                Fill="#2A3A54"
+                                Opacity="0.5" />
+                            <Rectangle
+                                Width="1"
+                                HorizontalAlignment="Center"
+                                Fill="#2A3A54"
+                                Opacity="0.5" />
+                            <!-- 虚线内描边（Border 不支持虚线，改由 Rectangle 的 StrokeDashArray 承载） -->
+                            <Rectangle
+                                Margin="12"
+                                RadiusX="8"
+                                RadiusY="8"
+                                Stroke="#3B4E6B"
+                                StrokeThickness="1"
+                                StrokeDashArray="4 4"
+                                Opacity="0.85" />
+                            <!-- 四角标（同一几何旋转 90° 复用） -->
+                            <Path
+                                Width="14"
+                                Height="14"
+                                Margin="16"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Top"
+                                Stroke="#3B82F6"
+                                StrokeThickness="1.5"
+                                Data="M 0,14 L 0,0 L 14,0" />
+                            <Path
+                                Width="14"
+                                Height="14"
+                                Margin="16"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Top"
+                                Stroke="#3B82F6"
+                                StrokeThickness="1.5"
+                                Data="M 0,14 L 0,0 L 14,0"
+                                RenderTransformOrigin="0.5,0.5">
+                                <Path.RenderTransform>
+                                    <RotateTransform Angle="90" />
+                                </Path.RenderTransform>
+                            </Path>
+                            <Path
+                                Width="14"
+                                Height="14"
+                                Margin="16"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Bottom"
+                                Stroke="#3B82F6"
+                                StrokeThickness="1.5"
+                                Data="M 0,14 L 0,0 L 14,0"
+                                RenderTransformOrigin="0.5,0.5">
+                                <Path.RenderTransform>
+                                    <RotateTransform Angle="180" />
+                                </Path.RenderTransform>
+                            </Path>
+                            <Path
+                                Width="14"
+                                Height="14"
+                                Margin="16"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Bottom"
+                                Stroke="#3B82F6"
+                                StrokeThickness="1.5"
+                                Data="M 0,14 L 0,0 L 14,0"
+                                RenderTransformOrigin="0.5,0.5">
+                                <Path.RenderTransform>
+                                    <RotateTransform Angle="270" />
+                                </Path.RenderTransform>
+                            </Path>
+                            <!-- 底部标校：差分卡类型 + 角色名（避开人像面部） -->
+                            <StackPanel
+                                Margin="0,0,0,16"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Bottom">
+                                <TextBlock
+                                    Text="{Binding SelectedUnit.CharacterCardCaption}"
+                                    FontSize="10"
+                                    Foreground="#8FA6C8"
+                                    HorizontalAlignment="Center" />
                                 <TextBlock
                                     Text="{Binding SelectedUnit.Speaker}"
-                                    Foreground="#CBD5E1"
-                                    Margin="0,4,0,0" />
+                                    FontSize="16"
+                                    FontWeight="SemiBold"
+                                    Margin="0,4,0,0"
+                                    HorizontalAlignment="Center">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <!-- 具名角色纯白；旁白 / Narrator / 空角色调暗，明示此卡无立绘承诺 -->
+                                            <Setter Property="Foreground" Value="#FFFFFF" />
+                                            <Style.Triggers>
+                                                <DataTrigger
+                                                    Binding="{Binding SelectedUnit.IsSpeakerPlaceholder}"
+                                                    Value="True">
+                                                    <Setter Property="Foreground" Value="#9AA3AE" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                             </StackPanel>
-                        </Border>
-
-                        <!-- 语音波形（确定性占位） -->
-                        <ItemsControl ItemsSource="{Binding WaveformBars}" Margin="0,12,0,0">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Rectangle
-                                        Width="5"
-                                        Margin="1,0"
-                                        Height="{Binding}"
-                                        Fill="#3B82F6"
-                                        VerticalAlignment="Bottom" />
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-
-                        <!-- 播放控制组 -->
-                        <StackPanel Margin="0,8,0,0" HorizontalAlignment="Center" Orientation="Horizontal">
-                            <ui:Button
-                                Appearance="Transparent"
-                                Content="⏮"
-                                FontSize="12" />
-                            <ui:Button
-                                Margin="10,0,0,0"
-                                Appearance="Transparent"
-                                Content="▶"
-                                FontSize="12" />
-                            <ui:Button
-                                Margin="10,0,0,0"
-                                Appearance="Transparent"
-                                Content="⏭"
-                                FontSize="12" />
-                        </StackPanel>
-
-                        <!-- 时长与补偿 -->
-                        <Grid Margin="0,6,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock
-                                Grid.Column="0"
-                                FontFamily="Consolas"
-                                FontSize="11"
-                                Text="{Binding DurationLabel}" />
-                            <TextBlock
-                                Grid.Column="1"
-                                HorizontalAlignment="Right"
-                                FontFamily="Consolas"
-                                FontSize="11"
-                                Foreground="#888888"
-                                Text="{Binding CompLabel, StringFormat=Comp: {0}}" />
                         </Grid>
 
-                        <ui:TextBlock FontTypography="BodyStrong" Text="Glossary Matches" Margin="0,14,0,6" />
-                        <ItemsControl ItemsSource="{Binding GlossaryItems}">
+                        <!-- 立绘与波形之间的 1px 微弱横向分割线 -->
+                        <Border
+                            Height="1"
+                            Margin="0,14,0,0"
+                            Background="#252E42" />
+
+                        <!-- 语音波形（确定性占位）：**中轴对称细波形** —— 细条 2px、间距 4px、
+                             以 VerticalAlignment=Center 让每根柱绕中轴上下发散，两端按包络收细 -->
+                        <Grid Margin="0,14,0,0">
+                            <!-- 中轴基线 -->
+                            <Rectangle
+                                Height="1"
+                                VerticalAlignment="Center"
+                                Fill="#1F2937" />
+                            <ItemsControl
+                                Height="56"
+                                ItemsSource="{Binding SelectedUnit.Waveform}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Rectangle
+                                            Width="2"
+                                            Margin="2,0"
+                                            RadiusX="1"
+                                            RadiusY="1"
+                                            Height="{Binding}"
+                                            Fill="{StaticResource WaveformBarBrush}"
+                                            VerticalAlignment="Center" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Grid>
+
+                        <!-- 时长与补偿：居中紧凑并排的深灰胶囊 -->
+                        <StackPanel
+                            Margin="0,12,0,0"
+                            HorizontalAlignment="Center"
+                            Orientation="Horizontal">
+                            <Border
+                                Padding="10,4"
+                                CornerRadius="12"
+                                Background="#3A3A3C">
+                                <TextBlock
+                                    FontFamily="Consolas"
+                                    FontSize="11"
+                                    Foreground="#FFFFFF"
+                                    Text="{Binding SelectedUnit.DurationLabel}" />
+                            </Border>
+                            <Border
+                                Margin="8,0,0,0"
+                                Padding="10,4"
+                                CornerRadius="12"
+                                Background="#3A3A3C">
+                                <TextBlock
+                                    FontFamily="Consolas"
+                                    FontSize="11"
+                                    Foreground="#D5D8DC"
+                                    Text="{Binding SelectedUnit.CompLabel, StringFormat=Comp: {0}}" />
+                            </Border>
+                        </StackPanel>
+
+                        <!-- 播放控制组：浅灰圆角方形按钮 + 放大图标（可视面积对齐设计稿）
+                             前后键=选中行导航（恒可用）；中键=真实试听（文件缺失/无语音时
+                             置灰，Tooltip 给出精确原因 —— 可点却无声比灰掉更糟） -->
+                        <StackPanel
+                            Margin="0,12,0,0"
+                            HorizontalAlignment="Center"
+                            Orientation="Horizontal">
+                            <ui:Button
+                                Width="48"
+                                Height="36"
+                                MinWidth="0"
+                                Padding="0"
+                                Background="#3A3A3C"
+                                BorderThickness="0"
+                                Command="{Binding PreviousUnitCommand}"
+                                ToolTip="选中上一行">
+                                <ui:SymbolIcon Symbol="Previous24" FontSize="18" Foreground="#FFFFFF" />
+                            </ui:Button>
+                            <ui:Button
+                                Width="48"
+                                Height="36"
+                                MinWidth="0"
+                                Margin="10,0,0,0"
+                                Padding="0"
+                                Background="#3A3A3C"
+                                BorderThickness="0"
+                                Command="{Binding PlayPauseAudioCommand}"
+                                IsEnabled="{Binding IsAudioPlayable}"
+                                ToolTip="{Binding AudioStatusHint}">
+                                <ui:SymbolIcon Symbol="Play24" FontSize="18" Foreground="#FFFFFF" />
+                            </ui:Button>
+                            <ui:Button
+                                Width="48"
+                                Height="36"
+                                MinWidth="0"
+                                Margin="10,0,0,0"
+                                Padding="0"
+                                Background="#3A3A3C"
+                                BorderThickness="0"
+                                Command="{Binding NextUnitCommand}"
+                                ToolTip="选中下一行">
+                                <ui:SymbolIcon Symbol="Next24" FontSize="18" Foreground="#FFFFFF" />
+                            </ui:Button>
+                        </StackPanel>
+                    </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- 卡 2：Glossary Matches（独立卡片，与 Context 卡之间透出底板） -->
+                <Border
+                    x:Name="InspectorGlossaryCard"
+                    Margin="0,10,0,0"
+                    Padding="14"
+                    CornerRadius="12"
+                    Background="#222427"
+                    BorderBrush="#34383C"
+                    BorderThickness="1"
+                    Visibility="{Binding InspectorSelectedVisibility}">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,10">
+                            <ui:TextBlock FontTypography="BodyStrong" Text="Glossary Matches" />
+                            <ui:SymbolIcon
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                Symbol="ChevronUp24"
+                                FontSize="14"
+                                Foreground="#9AA3AE" />
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding SelectedUnit.GlossaryMatches}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
+                                    <!-- 浅于卡片的中性浅灰底 + 纯白字（原为比卡片更暗的深蓝灰，明度关系反了） -->
                                     <Border
-                                        Margin="0,0,0,4"
-                                        Padding="8,4"
-                                        CornerRadius="4"
-                                        Background="#1E293B">
+                                        Margin="0,0,0,6"
+                                        Padding="12,6"
+                                        CornerRadius="10"
+                                        Background="#3A3A3C">
                                         <TextBlock
                                             Text="{Binding}"
-                                            FontSize="11"
-                                            Foreground="#94A3B8" />
+                                            FontSize="12"
+                                            Foreground="#FFFFFF" />
                                     </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        <!-- 空态：无命中时给一句话，而不是留一张只有标题的空卡片 -->
+                        <ui:TextBlock
+                            FontTypography="Body"
+                            Foreground="#7A8290"
+                            TextWrapping="Wrap"
+                            Text="本行无术语命中。"
+                            Visibility="{Binding SelectedUnit.GlossaryEmptyVisibility}" />
                     </StackPanel>
-                </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- 折叠态：32px 常驻停靠把手（面板收起后仍可一键唤回） -->
+            <Border
+                Grid.Column="3"
+                Width="32"
+                Margin="0,8,16,12"
+                CornerRadius="6"
+                Background="#141414"
+                BorderBrush="#252525"
+                BorderThickness="1"
+                Visibility="{Binding InspectorExpandVisibility}">
+                <ui:Button
+                    Width="30"
+                    Height="30"
+                    MinWidth="0"
+                    Margin="0,8,0,0"
+                    Padding="0"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Top"
+                    Appearance="Transparent"
+                    Icon="{ui:SymbolIcon Symbol=ChevronLeft24}"
+                    Command="{Binding ToggleInspectorCommand}"
+                    ToolTip="展开 Context Inspector" />
             </Border>
         </Grid>
     </Grid>

@@ -19,7 +19,23 @@ public sealed partial class MainWindow : FluentWindow
         InitializeComponent();
         // 选中/调用依赖 TargetPageType + 页面服务（缺服务时点击选择会被回退）
         RootNavigation.SetPageProviderService(new PageProviderService());
-        StudioViewModel.MetricsSink = (file, metrics) => _vm.PublishStudioMetrics(file, metrics);
+        StudioViewModel.MetricsSink = (file, metrics, status) =>
+            _vm.PublishStudioMetrics(file, metrics, status);
+        // LQA Lab「定位到工坊」：先导航回 Studio，工坊 VM 内部再选中目标行
+        StudioViewModelProvider.FocusRequested += _ =>
+        {
+            if (!ReferenceEquals(ContentFrame.Content?.GetType(), typeof(StudioPage)))
+            {
+                NavigateTo("studio");
+                MarkActive("studio");
+            }
+        };
+        // 资产双击剧本 → 请求导航回 Studio（载入本身走工坊统一命令）
+        StudioViewModelProvider.NavigateRequested += tag =>
+        {
+            NavigateTo(tag);
+            MarkActive(tag);
+        };
         DataContext = _vm;
         Loaded += OnLoaded;
         Closed += (_, _) => _vm.Dispose();
@@ -79,17 +95,19 @@ public sealed partial class MainWindow : FluentWindow
             "studio" => new StudioPage(),
             "assets" => new AssetHubPage(),
             "lqa" => new LqaLabPage(),
+            "media" => new MediaPage(),
             "settings" => new SettingsPage(),
             _ => new StudioPage(),
         };
         ContentFrame.Navigate(page);
         _vm.CurrentPageTitle = tag switch
         {
-            "studio" => "Studio 剧本工坊",
-            "assets" => "Asset Hub 资产归档",
-            "lqa" => "LQA Lab 质检中心",
-            "settings" => "Settings 模型与后端设置",
-            _ => "Studio 剧本工坊",
+            "studio" => "Studio",
+            "assets" => "Assets",
+            "lqa" => "LQA",
+            "media" => "Media",
+            "settings" => "Settings",
+            _ => "Studio",
         };
     }
 }

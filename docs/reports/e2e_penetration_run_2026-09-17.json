@@ -1,0 +1,150 @@
+{
+  "generated_at": "2026-09-17T11:03:28+00:00",
+  "tools": {
+    "psb_decompile": "D:\\Ugit\\Gal-Pipeline Studio\\tools\\freemote\\PsbDecompile.exe",
+    "ps_build": "D:\\Ugit\\Gal-Pipeline Studio\\tools\\freemote\\PsBuild.exe",
+    "xdelta3": "D:\\Ugit\\Gal-Pipeline Studio\\tools\\xdelta\\xdelta3.exe",
+    "leproc": "D:\\Ugit\\Gal-Pipeline Studio\\tools\\locale_emulator\\LEProc.exe"
+  },
+  "stages": [
+    {
+      "stage": "阶段0",
+      "message": "真机 PsBuild 产出 scene.psb（720 B）",
+      "elapsed_s": 3.86,
+      "psb_sha256": "6d7d760960553591c742e1e1c9bc58d77fc602e5c2e1db8796efbf2da42e6a5d",
+      "psb_size": 720
+    },
+    {
+      "stage": "阶段0",
+      "message": "样本图像：真 PNG + 真 TLG5（双格式）",
+      "elapsed_s": 5.49,
+      "png_sha256": "250e116e68ec794574b69c4a5a04b039516dc8fa171abb3f0484b522ffcd7f0d",
+      "tlg_sha256": "263810964e0ae8e825bb0b3e9ab72f5a0f8db794d18a641ef44fb52b6c73624c",
+      "tlg_format": "TLG5"
+    },
+    {
+      "stage": "阶段1",
+      "message": "真机 dump → scene.json（550 B）",
+      "elapsed_s": 8.33,
+      "dumped_sha256": "989199b17affd894d73160e8de87bb94256e659afb342402e78e417dba544f41",
+      "dumped_size": 550
+    },
+    {
+      "stage": "阶段2",
+      "message": "Gal-IR 抽取 4 条对白（角色归属正确）",
+      "elapsed_s": 11.16,
+      "units": 4,
+      "speakers": [
+        "千代",
+        "千代",
+        null,
+        "健一"
+      ]
+    },
+    {
+      "stage": "阶段2",
+      "message": "LQA 控制符语义：relay 管线携带宏 → 2 条 advisory（不阻断导出）",
+      "elapsed_s": 14.06,
+      "advisories": [
+        "单元 scene-00010：译文出现未登记的控制符样式 token '[ruby text=しんじつ]'，回写器不识别它，将原样送入引擎 —— 若确需该标记请先在抽取层登记",
+        "单元 scene-00010：译文出现未登记的控制符样式 token '[/ruby]'，回写器不识别它，将原样送入引擎 —— 若确需该标记请先在抽取层登记"
+      ]
+    },
+    {
+      "stage": "阶段2",
+      "message": "真机回编译 + 回读复核通过（scene.json，译文在位/非文本节点守恒）",
+      "elapsed_s": 19.35,
+      "source_psb_sha256": "6d7d760960553591c742e1e1c9bc58d77fc602e5c2e1db8796efbf2da42e6a5d",
+      "patched_psb_sha256": "423154f367ee74241f16f53fd58689475c98d7ba29513a44b51f9d68b7e508d7",
+      "patched_psb_size": 720,
+      "macro_occurrences": 1,
+      "non_text_nodes_preserved": true
+    },
+    {
+      "stage": "阶段3",
+      "message": "TLG5 内置通道 → PNG（64×32，167 B）",
+      "elapsed_s": 20.96,
+      "source_tlg_sha256": "263810964e0ae8e825bb0b3e9ab72f5a0f8db794d18a641ef44fb52b6c73624c",
+      "decoded_png_sha256": "6e879372e40bb057676808db405291549cfad3c3c75562d738423b8e9b2276a0",
+      "decoded_size": 167
+    },
+    {
+      "stage": "阶段3",
+      "message": "图片资产入树：1 张同名覆盖（改像素）+ 1 张新增",
+      "elapsed_s": 22.55,
+      "original_png_sha256": "250e116e68ec794574b69c4a5a04b039516dc8fa171abb3f0484b522ffcd7f0d",
+      "edited_png_sha256": "b135cabf389965e77a847660ad2393864ad8dc3f3aec1f85bf0a56c2e055f8ea",
+      "added_png_sha256": "7f22c7d9144bf7e542a14f370b72fb96a41a184838e9841a1e7a8929c41f19a4"
+    },
+    {
+      "stage": "阶段4",
+      "message": "Dirty-Only 收集：3 项（未改动 TLG5 被正确排除）",
+      "elapsed_s": 26.67,
+      "dirty_paths": [
+        "images/ui_banner.png",
+        "images/ui_title.png",
+        "scenario/scene.psb"
+      ],
+      "dirty_sha256": {
+        "images/ui_banner.png": "7f22c7d9144bf7e542a14f370b72fb96a41a184838e9841a1e7a8929c41f19a4",
+        "images/ui_title.png": "b135cabf389965e77a847660ad2393864ad8dc3f3aec1f85bf0a56c2e055f8ea",
+        "scenario/scene.psb": "fbf51ab53d21137324aa4134f407469e8cf957f7d7540f70283cf4aa767564d3"
+      },
+      "untouched_excluded": true
+    },
+    {
+      "stage": "阶段4",
+      "message": "暗礁探测：误入资产树的中间产物被识别为新增资产（可拦截）",
+      "elapsed_s": 28.2
+    },
+    {
+      "stage": "阶段4",
+      "message": "OverlayPatch 交付：暂存 3 文件 + manifest 哈希逐项自洽",
+      "elapsed_s": 32.71,
+      "staged_files": [
+        "patch2.xp3.d\\images\\ui_banner.png",
+        "patch2.xp3.d\\images\\ui_title.png",
+        "patch2.xp3.d\\scenario\\scene.psb"
+      ],
+      "manifest_sha256_verified": 3,
+      "manifest_dirty_count": 3
+    },
+    {
+      "stage": "阶段4",
+      "message": "XDeltaDiff：补丁 20014 B / 封包 28634 B（压缩至 69.9%），独立回放哈希一致",
+      "elapsed_s": 36.99,
+      "original_pack_sha256": "e9517f0240fad64f9c67432998e0add3d843fb4d22789c2e5920353c70bc7455",
+      "localized_pack_sha256": "291573c239a8cc2514ab64469eb579d096a71b247aaecd05dc62764faaaab591",
+      "patch_sha256": "866ba12f0aa9cd92f182b4e070ad22a1bbea53c4d675f2de9a57c7160dac48e1",
+      "replayed_pack_sha256": "291573c239a8cc2514ab64469eb579d096a71b247aaecd05dc62764faaaab591",
+      "patch_size": 20014,
+      "localized_pack_size": 28634,
+      "replay_hash_match": true
+    },
+    {
+      "stage": "阶段5",
+      "message": "免转区命令契约：-run / -runas <guid> 双形态与参数透传位序正确",
+      "elapsed_s": 38.51
+    },
+    {
+      "stage": "阶段5",
+      "message": "启动器已落盘 启动游戏.bat；诊断：游戏本体：D:\\Ugit\\Gal-Pipeline Studio\\.pytest_temp\\test_launcher_and_diagnostics_0\\localized\\game.exe；Locale Emulator：D:\\Ugit\\Gal-Pipeline Studio\\tools\\locale_emulator\\LEProc.exe",
+      "elapsed_s": 40.02
+    },
+    {
+      "stage": "阶段5",
+      "message": "降级路径验证：LEProc 缺失 → 直启 + 诊断如实披露（不静默失败）",
+      "elapsed_s": 41.54
+    },
+    {
+      "stage": "整链路",
+      "message": "开始单次运行穿透（无人工干预，全自动）",
+      "elapsed_s": 43.06
+    },
+    {
+      "stage": "整链路",
+      "message": "穿透完成：真机 dump → IR(4 条) → 回编译 → TLG5/PNG → Dirty 3 项 → 暂存补丁 → 免转区启动器（736 B PSB）",
+      "elapsed_s": 45.59
+    }
+  ]
+}

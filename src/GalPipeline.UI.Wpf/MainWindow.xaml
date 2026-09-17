@@ -3,15 +3,22 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-    Title="Gal-Pipeline Studio"
+    Title="Visual Novel Localization Studio"
     Width="1280"
     Height="800"
     WindowStartupLocation="CenterScreen"
-    ExtendsContentIntoTitleBar="True">
+    ExtendsContentIntoTitleBar="True"
+    WindowBackdropType="Mica"
+    WindowCornerPreference="Round">
+
+    <ui:FluentWindow.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+    </ui:FluentWindow.Resources>
 
     <!--
-        NavigationView 骨架（lepoco/wpfui）：侧栏暗调背景 + 右缘 1px 分界
-        （与主工作区拉开景深），四主导航槽；页内容以 WPF Frame 承载。
+        NavigationView 骨架（lepoco/wpfui）：侧栏暗调背景 + 右缘 1px 分界（与主工作区拉开景深）。
+        导航槽顺序与图标对齐设计稿：Assets / Studio / LQA / Media（+ 固定footer Settings）。
+        激活项为两行内容（主标签 + 蓝色 ACTIVE 副标签），副标签的可见性由 IsActive 驱动。
     -->
     <Grid>
         <Grid.RowDefinitions>
@@ -22,7 +29,7 @@
 
         <ui:TitleBar
             Grid.Row="0"
-            Title="Gal-Pipeline Studio"
+            Title="Visual Novel Localization Studio"
             Padding="8,4" />
 
         <Grid Grid.Row="1">
@@ -40,75 +47,241 @@
                 <ui:NavigationView
                     x:Name="RootNavigation"
                     PaneDisplayMode="Left"
-                    OpenPaneLength="170"
+                    OpenPaneLength="176"
                     IsPaneOpen="True"
                     IsBackButtonVisible="Collapsed"
-                    FontSize="12"
+                    FontSize="13"
                     PreviewMouseLeftButtonUp="OnPaneMouseUp">
                     <ui:NavigationView.MenuItems>
-                        <ui:NavigationViewItem
-                            Tag="studio"
-                            Content="Studio 剧本工坊"
-                            Icon="{ui:SymbolIcon Symbol=Edit24}" />
+                        <!-- 1. Assets（文件夹归档） -->
                         <ui:NavigationViewItem
                             Tag="assets"
-                            Content="Asset Hub 资产归档"
-                            Icon="{ui:SymbolIcon Symbol=Archive24}" />
+                            MinHeight="46"
+                            Padding="12,8"
+                            Margin="0,2"
+                            Icon="{ui:SymbolIcon Symbol=Folder24}">
+                            <ui:NavigationViewItem.Content>
+                                <StackPanel>
+                                    <TextBlock FontSize="13" Text="Assets" />
+                                    <TextBlock
+                                        Margin="0,2,0,0"
+                                        FontSize="10"
+                                        FontWeight="SemiBold"
+                                        Foreground="#4A9EFF"
+                                        Text="ACTIVE"
+                                        Visibility="{Binding IsActive, RelativeSource={RelativeSource AncestorType={x:Type ui:NavigationViewItem}}, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                </StackPanel>
+                            </ui:NavigationViewItem.Content>
+                        </ui:NavigationViewItem>
+
+                        <!-- 2. Studio（剧本工坊；启动默认激活槽） -->
+                        <ui:NavigationViewItem
+                            Tag="studio"
+                            MinHeight="46"
+                            Padding="12,8"
+                            Margin="0,2"
+                            Icon="{ui:SymbolIcon Symbol=Edit24}">
+                            <ui:NavigationViewItem.Content>
+                                <StackPanel>
+                                    <TextBlock FontSize="13" Text="Studio" />
+                                    <TextBlock
+                                        Margin="0,2,0,0"
+                                        FontSize="10"
+                                        FontWeight="SemiBold"
+                                        Foreground="#4A9EFF"
+                                        Text="ACTIVE"
+                                        Visibility="{Binding IsActive, RelativeSource={RelativeSource AncestorType={x:Type ui:NavigationViewItem}}, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                </StackPanel>
+                            </ui:NavigationViewItem.Content>
+                        </ui:NavigationViewItem>
+
+                        <!-- 3. LQA（质检；气泡笔图标契合语境） -->
                         <ui:NavigationViewItem
                             Tag="lqa"
-                            Content="LQA Lab 质检中心"
-                            Icon="{ui:SymbolIcon Symbol=ShieldCheckmark24}" />
+                            MinHeight="46"
+                            Padding="12,8"
+                            Margin="0,2"
+                            Icon="{ui:SymbolIcon Symbol=CommentEdit24}">
+                            <ui:NavigationViewItem.Content>
+                                <StackPanel>
+                                    <TextBlock FontSize="13" Text="LQA" />
+                                    <TextBlock
+                                        Margin="0,2,0,0"
+                                        FontSize="10"
+                                        FontWeight="SemiBold"
+                                        Foreground="#4A9EFF"
+                                        Text="ACTIVE"
+                                        Visibility="{Binding IsActive, RelativeSource={RelativeSource AncestorType={x:Type ui:NavigationViewItem}}, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                </StackPanel>
+                            </ui:NavigationViewItem.Content>
+                        </ui:NavigationViewItem>
+
+                        <!-- 4. Media（胶片框；设计稿第 4 槽） -->
+                        <ui:NavigationViewItem
+                            Tag="media"
+                            MinHeight="46"
+                            Padding="12,8"
+                            Margin="0,2"
+                            Icon="{ui:SymbolIcon Symbol=Filmstrip24}">
+                            <ui:NavigationViewItem.Content>
+                                <StackPanel>
+                                    <TextBlock FontSize="13" Text="Media" />
+                                    <TextBlock
+                                        Margin="0,2,0,0"
+                                        FontSize="10"
+                                        FontWeight="SemiBold"
+                                        Foreground="#4A9EFF"
+                                        Text="ACTIVE"
+                                        Visibility="{Binding IsActive, RelativeSource={RelativeSource AncestorType={x:Type ui:NavigationViewItem}}, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                </StackPanel>
+                            </ui:NavigationViewItem.Content>
+                        </ui:NavigationViewItem>
                     </ui:NavigationView.MenuItems>
                     <ui:NavigationView.FooterMenuItems>
                         <ui:NavigationViewItem
                             Tag="settings"
-                            Content="Settings 模型与后端设置"
-                            Icon="{ui:SymbolIcon Symbol=Settings24}" />
+                            MinHeight="46"
+                            Padding="12,8"
+                            Margin="0,2"
+                            Icon="{ui:SymbolIcon Symbol=Settings24}">
+                            <ui:NavigationViewItem.Content>
+                                <StackPanel>
+                                    <TextBlock FontSize="13" Text="Settings" />
+                                    <TextBlock
+                                        Margin="0,2,0,0"
+                                        FontSize="10"
+                                        FontWeight="SemiBold"
+                                        Foreground="#4A9EFF"
+                                        Text="ACTIVE"
+                                        Visibility="{Binding IsActive, RelativeSource={RelativeSource AncestorType={x:Type ui:NavigationViewItem}}, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                </StackPanel>
+                            </ui:NavigationViewItem.Content>
+                        </ui:NavigationViewItem>
                     </ui:NavigationView.FooterMenuItems>
                 </ui:NavigationView>
             </Border>
 
-            <Frame
-                Grid.Column="1"
-                x:Name="ContentFrame"
-                Background="Transparent"
-                NavigationUIVisibility="Hidden" />
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Frame
+                    Grid.Row="0"
+                    x:Name="ContentFrame"
+                    Background="Transparent"
+                    NavigationUIVisibility="Hidden" />
+
+                <!-- 内容区说明条（对齐设计稿：左「虚拟化网格」提示 / 右「可折叠 Inspector」提示） -->
+                <Border
+                    Grid.Row="1"
+                    Padding="16,6"
+                    Background="#131313"
+                    BorderBrush="#222222"
+                    BorderThickness="0,1,0,0">
+                    <Grid>
+                        <TextBlock
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            FontSize="11"
+                            Foreground="#8A8A8A"
+                            Text="{Binding StudioStatusLabel, Mode=OneWay}" />
+                        <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                FontSize="11"
+                                Foreground="#8A8A8A"
+                                Text="Clean vertical, collapsible Inspector" />
+                            <ui:SymbolIcon
+                                Margin="4,0,0,0"
+                                VerticalAlignment="Center"
+                                Symbol="ChevronDown24"
+                                FontSize="11"
+                                Foreground="#8A8A8A" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
         </Grid>
 
-        <!-- 底部全局状态栏：Sidecar 状态 / 当前页 / Studio 文件行数 / Token 与延迟 -->
+        <!-- 底部全局状态栏：Sidecar 状态 / 文件位置 Chip / Token 与延迟 / 缩放把手 -->
         <Border
             Grid.Row="2"
-            Padding="16,8"
-            BorderBrush="{DynamicResource TextFillColorSecondaryBrush}"
+            Padding="16,7"
+            Background="#141414"
+            BorderBrush="#2A2A2A"
             BorderThickness="0,1,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" Orientation="Horizontal">
-                    <Ellipse Width="10" Height="10" VerticalAlignment="Center"
-                             Margin="0,0,8,0"
-                             Fill="{Binding SidecarStatusBrush}" />
-                    <TextBlock Text="{Binding SidecarStatusText}" VerticalAlignment="Center" />
+
+                <StackPanel
+                    Grid.Column="0"
+                    Orientation="Horizontal"
+                    VerticalAlignment="Center">
+                    <Ellipse
+                        Width="9"
+                        Height="9"
+                        Margin="0,0,8,0"
+                        VerticalAlignment="Center"
+                        Fill="{Binding SidecarStatusBrush}" />
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="12"
+                        Text="{Binding SidecarStatusText}" />
                 </StackPanel>
-                <TextBlock
+
+                <!-- 文件位置：独立 Chip（文档图标 + 文件名/行数） -->
+                <Border
                     Grid.Column="1"
-                    HorizontalAlignment="Center"
+                    Margin="14,0,0,0"
+                    Padding="9,3"
                     VerticalAlignment="Center"
-                    Text="{Binding CurrentPageTitle}" />
-                <StackPanel Grid.Column="2" Orientation="Horizontal">
-                    <TextBlock
-                        Margin="0,0,12,0"
-                        VerticalAlignment="Center"
-                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                        Text="{Binding StudioFileLabel, Mode=OneWay}" />
-                    <TextBlock
-                        VerticalAlignment="Center"
-                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                        Text="{Binding StudioMetricsLabel, Mode=OneWay}" />
-                </StackPanel>
+                    Background="#222222"
+                    BorderBrush="#2E2E2E"
+                    BorderThickness="1"
+                    CornerRadius="6">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon
+                            VerticalAlignment="Center"
+                            Symbol="Document24"
+                            FontSize="12"
+                            Foreground="#8A8A8A" />
+                        <TextBlock
+                            Margin="6,0,0,0"
+                            VerticalAlignment="Center"
+                            FontSize="12"
+                            Foreground="#C8C8C8"
+                            Text="{Binding StudioFileLabel, Mode=OneWay}" />
+                    </StackPanel>
+                </Border>
+
+                <TextBlock
+                    Grid.Column="3"
+                    Margin="12,0,0,0"
+                    MaxWidth="560"
+                    VerticalAlignment="Center"
+                    FontSize="12"
+                    TextTrimming="CharacterEllipsis"
+                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                    Text="{Binding StudioMetricsLabel, Mode=OneWay}" />
+
+                <!-- 标准缩放把手（右下角斜纹） -->
+                <Path
+                    Grid.Column="4"
+                    Margin="12,0,0,-2"
+                    VerticalAlignment="Bottom"
+                    Stroke="#5F5F5F"
+                    StrokeThickness="1"
+                    StrokeStartLineCap="Round"
+                    StrokeEndLineCap="Round"
+                    Data="M 8,1 L 1,8 M 8,4.5 L 4.5,8" />
             </Grid>
         </Border>
     </Grid>

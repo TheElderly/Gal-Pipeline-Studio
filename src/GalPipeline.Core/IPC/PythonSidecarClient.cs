@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using GalPipeline.Core.Inspector;
 
 namespace GalPipeline.Core.IPC;
 
@@ -46,9 +47,36 @@ public sealed record ExtractToIrResult(
 
 public sealed record DetectFormatResult(bool Detected, string Adapter);
 
+/// <summary>detect_engine 响应：模块 0 的引擎画像（与 Python pydantic 模型逐字段对齐）。</summary>
+public sealed record EngineEvidenceDto(string EngineId, double Weight, string Description);
+
+public sealed record EngineProfileDto(
+    string GameDir,
+    bool Detected,
+    string? EngineType,
+    string? EngineDisplay,
+    double Confidence,
+    List<EngineEvidenceDto> Evidence,
+    string? RecommendedUnpacker,
+    int ScannedExes);
+
+public sealed record InitWorkspaceResult(string WorkspaceRoot, bool Existed, EngineProfileDto Profile);
+
+/// <summary>detect_engine 响应信封：{"profile": {...}}。</summary>
+public sealed record EngineProfileResult(EngineProfileDto Profile);
+
+/// <summary>list_archives 响应：待解包封包（相对游戏目录的路径，自然序）。</summary>
+public sealed record ListArchivesResult(List<string> Archives);
+
+/// <summary>unpack_archive 响应：单封包解包交付（skipped=true 表示幂等跳过）。</summary>
+public sealed record UnpackArchiveResult(string OutputDir, int FileCount, bool Skipped);
+
 public sealed record FetchModelsResult(List<string> Models);
 
 public sealed record IrToAssetResult(string OutputPath);
+
+/// <summary>match_glossary 响应信封：unit_id → 术语命中列表（无命中的单元被省略）。</summary>
+public sealed record GlossaryMatchResult(Dictionary<string, List<GlossaryMatch>> Matches);
 
 public sealed record TranslationConfigDto(
     string ApiBase,
@@ -59,6 +87,18 @@ public sealed record TranslationConfigDto(
     double? TimeoutSeconds = null,
     int? MaxRetries = null,
     string? ReasoningEffort = null);
+
+/// <summary>滑窗上下文行：一段「已定稿前文对白」的角色与译文（仅供语境参考）。</summary>
+public sealed record TranslationContextLine(string? Speaker, string Text);
+
+/// <summary>一次翻译批次的真实 Token 消耗（Sidecar 跨子批原子累加后回传）。</summary>
+public sealed record TokenUsageDto(int PromptTokens, int CompletionTokens, int TotalTokens);
+
+/// <summary>translate_batch 响应信封：状态刷新后的单元列表 + 本批次真实消耗。</summary>
+public sealed record TranslateBatchResult(List<TranslationUnitDto> Units, TokenUsageDto? Usage);
+
+/// <summary>convert_image 响应：转换产物路径与图像元数据。</summary>
+public sealed record ConvertImageResult(string DstPath, int Width, int Height, string Format);
 
 // ---------------------------------------------------------------------------
 // 客户端
@@ -129,6 +169,60 @@ public sealed class PythonSidecarClient : IDisposable
             ?? throw new JsonRpcException(-32603, "detect_format 响应结构异常");
     }
 
+    /// <summary>模块 0：对游戏根目录做只读指纹侦察（detect_engine 跨进程转发）。</summary>
+    public async Task<EngineProfileDto> DetectEngineAsync(
+        string gameDir, CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync("detect_engine", new { game_dir = gameDir }, cancellationToken)
+            .ConfigureAwait(false);
+        var profile = result.Deserialize<EngineProfileResult>(DtoOptions)?.Profile
+            ?? throw new JsonRpcException(-32603, "detect_engine 响应结构异常");
+        return profile;
+    }
+
+    /// <summary>模块 1：在游戏根目录创建标准 .galpipeline 工作区（幂等，不覆盖既有元数据）。</summary>
+    public async Task<InitWorkspaceResult> InitWorkspaceAsync(
+        string gameDir, CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync("init_workspace", new { game_dir = gameDir }, cancellationToken)
+            .ConfigureAwait(false);
+        return result.Deserialize<InitWorkspaceResult>(DtoOptions)
+            ?? throw new JsonRpcException(-32603, "init_workspace 响应结构异常");
+    }
+
+    /// <summary>模块 1 编排第一步：列出待解包封包（每封包一条短 RPC 的调度清单）。</summary>
+    public async Task<ListArchivesResult> ListArchivesAsync(
+        string gameDir, string? engineType, CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync(
+                "list_archives", new { game_dir = gameDir, engine_type = engineType },
+                cancellationToken)
+            .ConfigureAwait(false);
+        return result.Deserialize<ListArchivesResult>(DtoOptions)
+            ?? throw new JsonRpcException(-32603, "list_archives 响应结构异常");
+    }
+
+    /// <summary>
+    /// 模块 1 编排第二步：解包单个封包（工具路径由统一工具链解析后传入）。
+    /// 逐封包短 RPC：取消粒度=封包，进度=已处理/总数，单封包失败可跳过续走。
+    /// </summary>
+    public async Task<UnpackArchiveResult> UnpackArchiveAsync(
+        string gameDir,
+        string? engineType,
+        string archive,
+        string toolPath,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync(
+                "unpack_archive",
+                new { game_dir = gameDir, engine_type = engineType,
+                      archive = archive, tool_path = toolPath },
+                cancellationToken)
+            .ConfigureAwait(false);
+        return result.Deserialize<UnpackArchiveResult>(DtoOptions)
+            ?? throw new JsonRpcException(-32603, "unpack_archive 响应结构异常");
+    }
+
     /// <summary>拉取 OpenAI 兼容端点的模型清单（fetch_models 跨进程转发）。</summary>
     public async Task<List<string>> FetchModelsAsync(
         string apiBase, string? apiKey = null, CancellationToken cancellationToken = default)
@@ -150,14 +244,27 @@ public sealed class PythonSidecarClient : IDisposable
             ?? throw new JsonRpcException(-32603, "extract_to_ir 响应结构异常");
     }
 
-    public Task<List<TranslationUnitDto>> TranslateBatchAsync(
+    public Task<TranslateBatchResult> TranslateBatchAsync(
         IEnumerable<TranslationUnitDto> units,
         TranslationConfigDto config,
+        IReadOnlyList<TranslationContextLine>? context = null,
         CancellationToken cancellationToken = default)
-        => SendAsync("translate_batch", new { units, config }, cancellationToken)
+        => SendAsync("translate_batch", new { units, config, context }, cancellationToken)
             .ContinueWith(t =>
-                t.Result.Deserialize<List<TranslationUnitDto>>(DtoOptions)
+                t.Result.Deserialize<TranslateBatchResult>(DtoOptions)
                 ?? throw new JsonRpcException(-32603, "translate_batch 响应结构异常"),
+                cancellationToken, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
+
+    /// <summary>私有图像转换（TLG5 内置 / 其他变体走外部工具链通道）。</summary>
+    public Task<ConvertImageResult> ConvertImageAsync(
+        string srcPath,
+        string dstPath,
+        string? toolPath = null,
+        CancellationToken cancellationToken = default)
+        => SendAsync("convert_image", new { src_path = srcPath, dst_path = dstPath, tool_path = toolPath }, cancellationToken)
+            .ContinueWith(t =>
+                t.Result.Deserialize<ConvertImageResult>(DtoOptions)
+                ?? throw new JsonRpcException(-32603, "convert_image 响应结构异常"),
                 cancellationToken, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
 
     public async Task<IrToAssetResult> IrToAssetAsync(
@@ -167,6 +274,32 @@ public sealed class PythonSidecarClient : IDisposable
             .ConfigureAwait(false);
         return result.Deserialize<IrToAssetResult>(DtoOptions)
             ?? throw new JsonRpcException(-32603, "ir_to_asset 响应结构异常");
+    }
+
+    /// <summary>
+    /// 人工内联审校后的即时质检：送 Sidecar 重跑静态 LQA 规则，
+    /// 返回 status 与 metadata["lqa_issues"] 已刷新的单元副本。
+    /// </summary>
+    public async Task<List<TranslationUnitDto>> RunLqaAsync(
+        IEnumerable<TranslationUnitDto> units, CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync("run_lqa", new { units }, cancellationToken).ConfigureAwait(false);
+        return result.Deserialize<List<TranslationUnitDto>>(DtoOptions)
+            ?? throw new JsonRpcException(-32603, "run_lqa 响应结构异常");
+    }
+
+    /// <summary>
+    /// 批量匹配术语表：返回 unit_id → 命中列表（无命中的单元不出现在结果里）。
+    ///
+    /// 匹配依据是原文（extracted_text），而原文在抽取后不再变化 ——
+    /// 故载入时一次取回、整表缓存即可，选中行时零往返，Inspector 才能即时响应。
+    /// </summary>
+    public async Task<Dictionary<string, List<GlossaryMatch>>> MatchGlossaryAsync(
+        IEnumerable<TranslationUnitDto> units, CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync("match_glossary", new { units }, cancellationToken)
+            .ConfigureAwait(false);
+        return result.Deserialize<GlossaryMatchResult>(DtoOptions)?.Matches ?? [];
     }
 
     /// <summary>优雅关闭：先关 StdIn 触发 Python EOF 自然退出，超时再整树强杀。</summary>

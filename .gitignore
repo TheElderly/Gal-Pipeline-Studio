@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+.pytest_temp/
 
 # .NET / WinUI 构建产物
 [Bb]in/
@@ -18,3 +19,10 @@ data/*.db
 data/*.sqlite
 export/
 tests/fixtures/output/
+
+# 导出产物：StudioViewModel.ResolveExportDirectory 使壳层把汉化剧本写到
+# 源文件同级的 localized/ 下（含 tests/fixtures/localized/）。
+localized/
+
+# App 黑匣子日志（App.xaml.cs 的 Dispatcher / AppDomain / UnobservedTask 三路捕获）
+gal-pipeline-crash.log

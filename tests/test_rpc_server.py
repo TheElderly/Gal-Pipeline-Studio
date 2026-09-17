@@ -15,6 +15,7 @@ import io
 import json
 import sys
 import threading
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -140,7 +141,7 @@ class TestBusinessMethods:
             def __init__(self, config):
                 pass
 
-            def translate_batch(self, units):
+            def translate_batch(self, units, context=None):
                 for u in units:
                     u.translated_text = f"mock译文[{u.id}]"
                     u.status = TranslationStatus.LQA_PASSED
@@ -157,8 +158,11 @@ class TestBusinessMethods:
                 },
             ),
         )["result"]
-        assert resp[0]["status"] == "LQA_PASSED"
-        assert resp[0]["translated_text"] == "mock译文[scene-00003]"
+        # 契约：批次结果携带 units + usage 两个键（mock 无 last_usage 时 usage 零值兜底）
+        assert set(resp) == {"units", "usage"}
+        assert resp["usage"] == {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        assert resp["units"][0]["status"] == "LQA_PASSED"
+        assert resp["units"][0]["translated_text"] == "mock译文[scene-00003]"
 
     def test_ir_to_asset_roundtrip(self, dispatcher, ks_file, tmp_path):
         project = _result(dispatcher, _rpc("extract_to_ir", {"file_path": str(ks_file)}))["result"]["project"]
@@ -321,7 +325,21 @@ class TestFetchModels:
         assert resp["error"]["code"] == -32000
         assert "JSON" in resp["error"]["message"]
 
-    def test_connection_refused_maps_to_business_error(self, dispatcher):
-        resp = _result(dispatcher, _rpc("fetch_models", {"api_base": "http://127.0.0.1:1/v1"}))
+    def test_connection_refused_maps_to_business_error(self, dispatcher, monkeypatch):
+        # 宿主 Shell 可能注入 HTTP_PROXY（本机服务代理）——代理会把发往
+        # 必然关闭端口的请求截胡成 HTTP 502，「连接拒绝」前提失效。
+        # 剥离代理环境并丢弃 urllib 缓存的带代理 opener，让请求真实走
+        # URLError（网络错误）分支，断言其归一化语义。
+        proxy_vars = ("HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy",
+                      "HTTPS_PROXY", "https_proxy")
+        for name in proxy_vars:
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setattr(urllib.request, "getproxies", lambda: {})
+        saved_opener = urllib.request._opener
+        urllib.request.install_opener(None)
+        try:
+            resp = _result(dispatcher, _rpc("fetch_models", {"api_base": "http://127.0.0.1:1/v1"}))
+        finally:
+            urllib.request.install_opener(saved_opener)
         assert resp["error"]["code"] == -32000
         assert "网络" in resp["error"]["message"]

@@ -27,15 +27,21 @@
 2. ``paired_balance``：成对标记配平 —— 开闭标记均存在于 raw_text 且开
    标记首次出现先于闭标记首次出现；加强项：开闭标记在 raw_text 中的
    出现计数配平、inner_text 落于首对开闭区间之内；
-3. ``cjk_punctuation``：译文全角标点规范化 —— 直角引号「」配平且无
+3. ``control_conservation``：译文侧控制符携带模式审计（详见
+   ``check_control_conservation`` docstring 的三态语义）—— 宏被删改/
+   部分携带/篡改参数一律 error 阻断；
+4. ``cjk_punctuation``：译文全角标点规范化 —— 直角引号「」配平且无
    交叉错配（栈扫描）、破折号必须以成双「——」出现（禁止孤立单个或
    奇数连续）；辅助提示（warning 级）：省略号 … 应规范化为双三点 ……、
    长破折号 ―（U+2015）应规范化为 ——、半角 ！? 应对齐为全角 ！？。
 
 公开 API：``LQAIssue``、``check_atomic_conservation``、
-``check_paired_balance``、``check_cjk_punctuation``、``run_static_rules``。
+``check_paired_balance``、``check_control_conservation``、
+``check_cjk_punctuation``、``run_static_rules``。
 """
 
+import re
+from collections import Counter
 from collections.abc import Iterator
 from typing import Final, Literal, NamedTuple
 
@@ -78,6 +84,13 @@ RULE_PAIRED_BALANCE: Final[str] = "paired_balance"
 RULE_CJK_PUNCTUATION: Final[str] = "cjk_punctuation"
 """中日文全角标点规范化规则的 rule_id。"""
 
+RULE_CONTROL_CONSERVATION: Final[str] = "control_conservation"
+"""译文侧控制符携带模式审计规则的 rule_id。
+
+命名与 ``atomic_conservation`` 同族（规则语义是「守恒审计」，违例只是
+审计结论）—— 命中任何 error 时单元同样被判 ``LQA_FAILED``。
+"""
+
 _OPEN_CORNER: Final[str] = "「"  # U+300C LEFT CORNER BRACKET
 _CLOSE_CORNER: Final[str] = "」"  # U+300D RIGHT CORNER BRACKET
 _EM_DASH: Final[str] = "—"  # U+2014 EM DASH，破折号「——」的组成单元
@@ -86,6 +99,14 @@ _ELLIPSIS: Final[str] = "…"  # U+2026 HORIZONTAL ELLIPSIS，目标形态为双
 
 _HALF_TO_FULL: Final[tuple[tuple[str, str], ...]] = (("!", "！"), ("?", "？"))
 """半角问号/叹号到全角的规范化映射（只读遍历，绝不就地修改）。"""
+
+_CONTROL_TOKEN_RE: Final = re.compile(r"\[[^\[\]\n]{1,64}\]")
+"""控制符样式 token 的扫描模式：成对方括号、内部无嵌套括号与换行。
+
+上限 64 字符：真实引擎宏（``[ruby text="…"]`` / ``[font size=24]``）远短于
+此；超长的方括号片段几乎必然是正文里的记号（如「参见[注1]」），用长度
+护栏避免把整段被误括的散文当成一个 token。
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +405,144 @@ def check_cjk_punctuation(
 
 
 # ---------------------------------------------------------------------------
+# 规则 3：译文侧控制符携带模式审计
+# ---------------------------------------------------------------------------
+
+
+def _token_family(token: str) -> str:
+    """取控制符 token 的「族名」：方括号内首个空白/等号前的标识符。
+
+    ``[ruby text="…"]`` → ``ruby``；``[font size=24]`` → ``font``；
+    ``[r]`` → ``r``。用于把「参数被改写的已登记宏」与「完全无关的
+    方括号记号」区分开 —— 前者是篡改（error），后者只提示（warning）。
+    """
+    inner = token[1:-1]
+    for sep in (" ", "\t", "="):
+        index = inner.find(sep)
+        if index > 0:
+            return inner[:index]
+    return inner
+
+
+def check_control_conservation(unit: TranslationUnit) -> list[LQAIssue]:
+    """审计译文的控制符携带模式；text 为 None（未翻译）时整条跳过。
+
+    背景（为什么这条规则是三态的，而不是简单的「译文必须含宏」）::
+
+        当前 KAG 管线的规范形态是「剥离式」：extracted_text 与送翻
+        Prompt 都**不含**宏，译文是纯散文，宏由回写器按登记锚点机械
+        复写（ir_to_asset）。因此「模型吞宏」在这条管线上构造性不可能。
+        真正的风险面是：
+        a) 人工在内联编辑框**手动敲入**宏 —— 回写器会再复写一遍，
+           造成重复注入（引擎语法错误）；
+        b) 译文出现**未登记/被篡改**的控制符 token —— 回写器不认识它，
+           会原样送达引擎；
+        c) 未来「模型自带宏」的引擎流（Prompt 要求模型保留宏）——
+           此时必须校验数量与相对顺序守恒。
+
+    三态语义（按译文中出现的已登记宏字面量占比判定）：
+
+    * **全携带**：每个登记宏字面量在译文中的出现次数与登记数一致，
+      且相对顺序与 raw_text 登记序一致 → 通过；
+    * **全不携带**（剥离式规范形态）→ 通过；若此时译文里出现方括号
+      token：与登记宏同族的判**篡改**（error），无关记号判**未登记**
+      （warning，advisory）；
+    * **部分携带 / 数量失衡 / 顺序错乱** → error：已携带的宏会被回写器
+      二次复写叠加，缺失的由回写器补插 —— 结果既重复又错位，必须阻断。
+
+    全部断言为纯字符串扫描：``Counter`` 计数 + ``str.find`` 游标推进，
+    零 LLM、零 I/O，结果可复现。通过时返回空列表。
+    """
+    text = unit.translated_text
+    if text is None:
+        return []
+
+    issues: list[LQAIssue] = []
+    prefix = f"单元 {unit.id}："
+
+    def _add(severity: Severity, message: str) -> None:
+        issues.append(
+            LQAIssue(
+                rule_id=RULE_CONTROL_CONSERVATION,
+                severity=severity,
+                message=prefix + message,
+                unit_id=unit.id,
+            )
+        )
+
+    expected_seq: list[str] = [
+        tag.raw_tag for tag in sorted(unit.atomic_tags, key=lambda t: t.position)
+    ]
+    expected_counts: Counter[str] = Counter(expected_seq)
+    found_tokens = [
+        (match.start(), match.group(0))
+        for match in _CONTROL_TOKEN_RE.finditer(text)
+    ]
+    found_counts: Counter[str] = Counter(token for _, token in found_tokens)
+
+    # 未登记 token：字面量不在登记表内（有登记表且同族 → 篡改 error；
+    # 异族或登记表为空 → warning，advisory）
+    families = {_token_family(lit) for lit in expected_counts}
+    for _, token in found_tokens:
+        if token in expected_counts:
+            continue
+        if _token_family(token) in families:
+            _add(
+                "error",
+                f"译文出现登记宏的篡改变体 {token!r}（同族控制符但参数/字面与"
+                f"登记不符），回写锚点按登记字面量匹配，篡改变体将被原样送达引擎",
+            )
+        else:
+            _add(
+                "warning",
+                f"译文出现未登记的控制符样式 token {token!r}，回写器不识别它，"
+                "将原样送入引擎 —— 若确需该标记请先在抽取层登记",
+            )
+
+    if not expected_counts:
+        return issues
+
+    if all(found_counts[literal] == 0 for literal in expected_counts):
+        return issues  # 剥离式规范形态：宏全部由回写器机械复写
+
+    missing = [lit for lit in expected_counts if found_counts[lit] == 0]
+    if missing:
+        carried = [lit for lit in expected_counts if found_counts[lit] > 0]
+        _add(
+            "error",
+            f"译文仅部分携带控制宏：已携带 {carried!r}，缺失 {missing!r}。"
+            "回写器会把全部登记宏按锚点复写进译文，已携带部分将叠加成重复注入、"
+            "缺失部分看似由回写补齐实则位置失锚 —— 请要么删除手动敲入的宏，"
+            "要么完整携带全部宏",
+        )
+        return issues
+
+    over = [
+        lit for lit, count in expected_counts.items() if found_counts[lit] > count
+    ]
+    if over:
+        _add(
+            "error",
+            f"译文携带的控制宏数量超出登记：{over!r}，回写器复写后必然重复注入",
+        )
+        return issues
+
+    # 数量全部一致 → 游标推进校验相对顺序（与 raw_text 登记序一致）
+    cursor = 0
+    for literal in expected_seq:
+        index = text.find(literal, cursor)
+        if index < 0:
+            _add(
+                "error",
+                f"控制宏 {literal!r} 在译文中的相对顺序与登记序不符"
+                f"（游标已推进至 {cursor}，其前必须出现的宏已消费完毕）",
+            )
+            break
+        cursor = index + len(literal)
+    return issues
+
+
+# ---------------------------------------------------------------------------
 # 聚合入口
 # ---------------------------------------------------------------------------
 
@@ -392,11 +551,13 @@ def run_static_rules(unit: TranslationUnit) -> list[LQAIssue]:
     """对单个翻译单元依次跑全部静态规则并聚合违例。
 
     违例顺序稳定可复现：atomic_conservation → paired_balance →
-    cjk_punctuation；同一规则内部按输入登记顺序 / 扫描偏移顺序排列。
-    译文为 None（尚未翻译）时标点规则整条自然跳过，其余规则照常生效。
+    control_conservation → cjk_punctuation；同一规则内部按输入登记顺序 /
+    扫描偏移顺序排列。
+    译文为 None（尚未翻译）时标点与控制符携带规则整条自然跳过，其余规则照常生效。
     """
     issues: list[LQAIssue] = []
     issues.extend(check_atomic_conservation(unit))
     issues.extend(check_paired_balance(unit))
+    issues.extend(check_control_conservation(unit))
     issues.extend(check_cjk_punctuation(unit.translated_text, unit_id=unit.id))
     return issues

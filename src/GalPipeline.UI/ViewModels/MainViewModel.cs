@@ -163,8 +163,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await RunBusyAsync(async () =>
         {
             StatusMessage = $"正在翻译 {targets.Count} 条…";
-            var updated = await _client!.TranslateBatchAsync(targets, ApiConfig.ToDto());
-            var byId = updated.ToDictionary(u => u.Id);
+            // translate_batch 契约已升级为 {units, usage} 信封 —— units 通道对齐
+            var result = await _client!.TranslateBatchAsync(targets, ApiConfig.ToDto());
+            var byId = result.Units.ToDictionary(u => u.Id);
             foreach (var item in Units)
             {
                 if (byId.TryGetValue(item.Model.Id, out var dto))
@@ -174,8 +175,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
             RefreshProgress();
             StatusMessage =
-                $"批次完成：{updated.Count(u => u.Status == "LQA_PASSED")} 通过，"
-                + $"{updated.Count(u => u.Status == "LQA_FAILED")} 待返工";
+                $"批次完成：{result.Units.Count(u => u.Status == "LQA_PASSED")} 通过，"
+                + $"{result.Units.Count(u => u.Status == "LQA_FAILED")} 待返工";
         });
     }
 

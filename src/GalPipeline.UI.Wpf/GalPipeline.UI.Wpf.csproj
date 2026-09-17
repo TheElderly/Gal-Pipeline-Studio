@@ -18,4 +18,12 @@
     <ProjectReference Include="..\GalPipeline.Core\GalPipeline.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- 本地图片资产必须显式标记为 Resource：
+         WPF 的 pack URI 在**编译期不校验**，漏掉这一项时构建仍 0 错误 0 警告，
+         直到运行时 LoadComponent 抛 IOException（内容区整块空白）。
+         有 tests/test_xaml_binding_contract.py::test_local_assets_are_embedded_as_resources 守着。 -->
+    <Resource Include="Assets\character-standing-placeholder.png" />
+  </ItemGroup>
+
 </Project>

@@ -30,14 +30,23 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Final
 
 from pydantic import ValidationError
 
-from ..adapters.base import EngineAdapterError, UnsupportedFormatError
+from ..adapters.base import BaseEngineAdapter, EngineAdapterError, UnsupportedFormatError
 from ..adapters.kag import KagAdapter
+from ..adapters.relay import CSVTabularAdapter, JsonAdapter, MarkedTextAdapter, TabularAdapter
+from ..archive.orchestration import list_archives as list_archives_entries
+from ..archive.orchestration import unpack_archive as unpack_archive_entry
+from ..archive.workspace import init_workspace as init_workspace_dirs
+from ..lqa.rules import run_static_rules
+from ..media.pipeline import convert_image as convert_image_entry
 from ..models.ir import GalIRProject, TranslationUnit
+from ..models.status import TranslationStatus
 from ..pipeline.translator import GalgameTranslator, TranslationAPIError, TranslationConfig
+from ..profiler.engine_profiler import profile_engine
+from ..tm.glossary import match_glossary as match_glossary_terms
 
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
@@ -49,6 +58,28 @@ BUSINESS_ERROR = -32000
 
 _MODELS_TIMEOUT_SECONDS = 15.0
 """fetch_models 单次 GET 的网络超时。"""
+
+_ADAPTER_FACTORIES: Final[dict[str, Callable[[], BaseEngineAdapter]]] = {
+    "kag": KagAdapter,
+    # 通用中继适配器（社区工具中间文本 → Gal-IR）：格式与引擎能力正交，
+    # 引擎语义（dump/回编译工具、补丁形态）由 core/adapters/relay/recipes.py 声明。
+    "relay.tsv": TabularAdapter,
+    "relay.csv": CSVTabularAdapter,
+    "relay.marked": MarkedTextAdapter,
+    "relay.json": JsonAdapter,
+}
+"""引擎类型 → 适配器构造器的注册表：新增引擎只改这张表，不动调度逻辑。
+
+值为「构造器」而非「实例」，以保留 ``build_default_dispatcher`` 每次
+调用产出独立实例的既有契约（适配器当前无状态，但契约不该依赖这一点）。
+键必须与 ``GalIRProject.engine_type`` 的字面量一致 —— ``ir_to_asset``
+正是按该键 O(1) 查表选适配器。
+"""
+
+
+def _build_adapters() -> dict[str, BaseEngineAdapter]:
+    """按注册表实例化全部适配器（每次调用独立实例，供单次分发器独占）。"""
+    return {name: factory() for name, factory in _ADAPTER_FACTORIES.items()}
 
 
 class _RpcFailure(Exception):
@@ -165,7 +196,7 @@ class RpcDispatcher:
 
 def build_default_dispatcher() -> RpcDispatcher:
     """组装注册全部核心业务方法的默认分发器（每次调用独立实例）。"""
-    adapters: dict[str, Any] = {"kag": KagAdapter()}
+    adapters = _build_adapters()
     dispatcher = RpcDispatcher()
     register = dispatcher.register
 
@@ -195,10 +226,32 @@ def build_default_dispatcher() -> RpcDispatcher:
                 }
         raise UnsupportedFormatError(f"无已注册适配器认领该文件：{file_path}")
 
-    def translate_batch(units: list[dict], config: dict) -> list[dict]:
+    def translate_batch(
+        units: list[dict], config: dict, context: list[dict] | None = None
+    ) -> dict:
+        """批量翻译调度。
+
+        ``context``（可选）：滑窗上下文 ``[{"speaker": ..., "text": ...}]``
+        —— 调用方（壳层）从**本调用之前已定稿**的对白里截取的参考行；
+        Sidecar 按批次注入 User Prompt 的隔离块，仅供模型理解指代。
+        缺省时回退为批内先行定稿条目（直调管线场景）。
+
+        响应形如 ``{"units": [...], "usage": {...}}``：units 为状态刷新后
+        的单元列表，usage 为本批次真实 Token 消耗（跨子批原子累加，
+        缺 usage 字段的响应按零贡献）。
+        """
         validated = [TranslationUnit.model_validate(unit) for unit in units]
         translator = GalgameTranslator(TranslationConfig(**config))
-        return [u.model_dump(mode="json") for u in translator.translate_batch(validated)]
+        updated = translator.translate_batch(validated, context=context)
+        usage = getattr(translator, "last_usage", None) or {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+        return {
+            "units": [u.model_dump(mode="json") for u in updated],
+            "usage": usage,
+        }
 
     def ir_to_asset(project: dict, output_dir: str) -> dict:
         proj = GalIRProject.model_validate(project)
@@ -207,10 +260,129 @@ def build_default_dispatcher() -> RpcDispatcher:
             raise UnsupportedFormatError(f"未知引擎类型：{proj.engine_type}")
         return {"output_path": str(adapter.ir_to_asset(proj, Path(output_dir)))}
 
+    def run_lqa(units: list[dict]) -> list[dict]:
+        """对一批单元重跑静态 LQA 规则，原地刷新 status 与 metadata["lqa_issues"]。
+
+        人工内联审校（Inline Editing）后的**唯一复核入口**：译文一旦在
+        壳层被改动，引号配平 / 破折号成双 / 宏锚点守恒必须重新判定 ——
+        否则 status 会停留在抽取期快照，绿色胶囊沦为装饰。规则实现完全
+        复用 core.lqa.rules.run_static_rules（零 LLM / 零 token / 零 I/O），
+        本方法只负责状态机推进与 metadata 落痕。
+
+        语义与 translator 的即时门禁一致（error 阻断 / warning 放行留痕），
+        并额外显式处理「译文被人工清空」这一回退场景：回归 EXTRACTED 待译态，
+        而不是因标点规则整条跳过而被误判为通过。
+        """
+        refreshed: list[dict] = []
+        for payload in units:
+            unit = TranslationUnit.model_validate(payload)
+            if not (unit.translated_text or "").strip():
+                unit.status = TranslationStatus.EXTRACTED
+                unit.metadata.pop("lqa_issues", None)
+            else:
+                issues = run_static_rules(unit)
+                unit.status = (
+                    TranslationStatus.LQA_FAILED
+                    if any(issue.severity == "error" for issue in issues)
+                    else TranslationStatus.LQA_PASSED
+                )
+                if issues:
+                    unit.metadata["lqa_issues"] = [
+                        {
+                            "rule_id": issue.rule_id,
+                            "severity": issue.severity,
+                            "message": issue.message,
+                        }
+                        for issue in issues
+                    ]
+                else:
+                    # 违例已全部修复：清除陈旧留痕，避免前台残留错误气泡
+                    unit.metadata.pop("lqa_issues", None)
+            refreshed.append(unit.model_dump(mode="json"))
+        return refreshed
+
+    def match_glossary(units: list[dict]) -> dict:
+        """按单元抽取正文匹配术语表，返回 ``{"matches": {unit_id: [...]}}``。
+
+        与 ``translate_batch`` 的分工：本方法只做**只读的术语标注**，
+        不改动单元的任何字段。之所以做成批量 RPC 而非逐行调用，是因为
+        匹配依据是 ``extracted_text``（原文），而原文在抽取后就不再变化 ——
+        载入时一次取回、整表缓存即可，选中行时零往返，Inspector 才能即时响应。
+
+        无命中的单元从结果里省略（而非给空列表），让回包只承载有效信息。
+        将来接入 SQLite WAL 记忆库时，只需替换 core.tm 的实现，
+        本方法契约与壳层消费方式均不变。
+        """
+        matches: dict[str, list[dict]] = {}
+        for payload in units:
+            unit = TranslationUnit.model_validate(payload)
+            found = match_glossary_terms(unit.extracted_text)
+            if found:
+                matches[unit.id] = [
+                    {"source": match.source, "target": match.target, "note": match.note}
+                    for match in found
+                ]
+        return {"matches": matches}
+
+    def detect_engine(game_dir: str) -> dict:
+        """模块 0：对游戏根目录做只读指纹侦察，产出结构化引擎画像。
+
+        与 ``detect_format`` 的分工：后者认领**单个文件**（脚本嗅探），
+        本方法认领**整作目录**（封包 + PE 特征）。侦察纯只读、限定浅层，
+        不执行任何游戏程序、不解包。
+        """
+        return {"profile": profile_engine(Path(game_dir)).model_dump(mode="json")}
+
+    def init_workspace(game_dir: str) -> dict:
+        """模块 1：在游戏根目录创建标准 .galpipeline 工作区（幂等）。
+
+        引擎画像来自现场侦察（而非调用方转交），保证 project.json 与
+        磁盘上的真实特征一致；已存在的工程元数据绝不覆盖。
+        """
+        directory = Path(game_dir)
+        profile = profile_engine(directory)
+        root = init_workspace_dirs(directory, profile)
+        return {
+            "workspace_root": str(root),
+            "existed": (root / "project.json").exists(),
+            "profile": profile.model_dump(mode="json"),
+        }
+
+    def list_archives(game_dir: str, engine_type: str | None = None) -> dict:
+        """模块 1 编排第一步：列出待解包封包（壳层逐封包调度解包）。
+
+        逐封包短 RPC 而非单次大任务：解包可能耗时数分钟，长 RPC 会堵死
+        分发器且无法取消 —— 拆开后取消粒度=封包、进度=已处理/总数。
+        """
+        return list_archives_entries(game_dir, engine_type)
+
+    def unpack_archive(
+        game_dir: str,
+        engine_type: str | None,
+        archive: str,
+        tool_path: str,
+        timeout_seconds: float = 600.0,
+    ) -> dict:
+        """模块 1 编排第二步：解包单个封包到 raw/scripts/{stem}/（幂等）。
+
+        tool_path 必须由壳层经统一工具链解析后传入（本侧不做工具定位）；
+        工具未装配 / 退出码异常 / 空产出分别分型上抛，统一映射 -32000。
+        """
+        return unpack_archive_entry(
+            game_dir, engine_type, archive, tool_path, timeout_seconds
+        )
+
     register("detect_format", detect_format)
     register("extract_to_ir", extract_to_ir)
     register("translate_batch", translate_batch)
     register("ir_to_asset", ir_to_asset)
+    register("run_lqa", run_lqa)
+    register("match_glossary", match_glossary)
+    register("detect_engine", detect_engine)
+    register("init_workspace", init_workspace)
+    register("list_archives", list_archives)
+    register("unpack_archive", unpack_archive)
+    register("convert_image", convert_image_entry)
     return dispatcher
 
 

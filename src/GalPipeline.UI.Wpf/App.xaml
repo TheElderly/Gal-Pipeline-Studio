@@ -2,15 +2,26 @@
     x:Class="GalPipeline.Desktop.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:conv="clr-namespace:GalPipeline.Desktop.Converters"
     xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
     StartupUri="MainWindow.xaml">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <!-- Fluent 2 视觉基调：主题字典 + 全量控件样式（lepoco/wpfui） -->
+                <!-- Fluent 2 视觉基调（lepoco/wpfui 4.3）：
+                     ThemesDictionary = 主题化资源（Light/Dark 色板、TextFillColor*、
+                     ControlFillColor*、ControlCornerRadius 等语义令牌）；
+                     ControlsDictionary = 全量控件 ControlTemplate + Typography
+                     （FontTypography=TitleLarge/Body/BodyStrong… 由它提供）。 -->
                 <ui:ThemesDictionary Theme="Dark" />
                 <ui:ControlsDictionary />
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- 全应用共享的视图层适配器（媒体工作台与后续切片复用同一份实例） -->
+            <conv:MediaStatusToAppearanceConverter x:Key="MediaStatusToAppearance" />
+            <conv:FilterEqualsConverter x:Key="FilterEquals" />
+            <conv:InverseBooleanConverter x:Key="InverseBoolean" />
+            <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

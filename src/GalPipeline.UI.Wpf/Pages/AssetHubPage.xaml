@@ -3,19 +3,165 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
-    <!-- WPF StackPanel 无 Spacing 属性，以子元素 Margin 表达间距 -->
-    <StackPanel Margin="28,24">
-        <ui:TextBlock FontTypography="TitleLarge" Text="Asset Hub 资产归档"
-                      Margin="0,0,0,12" />
-        <ui:TextBlock FontTypography="Body"
-                      Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                      TextWrapping="Wrap"
-                      Margin="0,0,0,12"
-                      Text="封包/图片/音频等资产的集中归档与预览，图像经 RGBA PNG-32 内存归一化管道。" />
-        <ui:InfoBar
-            Title="占位导航槽"
-            Message="资产库面板将于后续切片交付。"
-            IsOpen="True"
-            IsClosable="False" />
-    </StackPanel>
+    <!-- Asset Hub 资产浏览器：工作区 raw/ 三分类树 + TLG 即插即看（占位 InfoBar 已废除） -->
+    <Grid Margin="28,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 头部：标题 + 工作区标签 + 命令 -->
+        <Grid Grid.Row="0" Margin="0,0,0,12">
+            <StackPanel>
+                <ui:TextBlock FontTypography="TitleLarge" Text="Asset Hub 资产归档" />
+                <TextBlock
+                    Margin="0,6,0,0"
+                    FontSize="12"
+                    TextWrapping="Wrap"
+                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                    Text="{Binding WorkspaceLabel}" />
+            </StackPanel>
+            <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Orientation="Horizontal">
+                <ui:Button
+                    Margin="0,0,8,0"
+                    Appearance="Secondary"
+                    Icon="{ui:SymbolIcon Symbol=ArrowSync24}"
+                    Content="刷新"
+                    Command="{Binding RefreshBoardCommand}"
+                    ToolTip="重新扫描工作区资产" />
+                <ui:Button
+                    Appearance="Secondary"
+                    Icon="{ui:SymbolIcon Symbol=FolderOpen24}"
+                    Content="打开资产目录"
+                    Command="{Binding OpenAssetFolderCommand}"
+                    ToolTip="在资源管理器中打开 .galpipeline/raw/" />
+            </StackPanel>
+        </Grid>
+
+        <!-- 统计徽章 -->
+        <ItemsControl
+            Grid.Row="1"
+            ItemsSource="{Binding KindSummaries}"
+            Margin="0,0,0,12">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border
+                        Margin="0,0,8,0"
+                        Padding="10,4"
+                        CornerRadius="10"
+                        Background="#3A3A3C">
+                        <TextBlock FontSize="11" Foreground="#FFFFFF" Text="{Binding Label}" />
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <!-- 主体：三分类标签页 / 未初始化态 -->
+        <Grid Grid.Row="2">
+            <TabControl Visibility="{Binding BoardVisibility}" Background="Transparent">
+                <TabItem Header="剧本 (scripts)">
+                    <ListView
+                        ItemsSource="{Binding Scripts}"
+                        DisplayMemberPath="RelativePath"
+                        Background="Transparent"
+                        BorderThickness="1"
+                        BorderBrush="#252525"
+                        MouseDoubleClick="OnAssetDoubleClicked"
+                        SelectionChanged="OnAssetSelected"
+                        ToolTip="双击剧本：在剧本工坊中打开审校" />
+                </TabItem>
+                <TabItem Header="图像 (images)">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="300" />
+                        </Grid.ColumnDefinitions>
+                        <ListView
+                            Grid.Column="0"
+                            ItemsSource="{Binding Images}"
+                            DisplayMemberPath="RelativePath"
+                            Background="Transparent"
+                            BorderThickness="1"
+                            BorderBrush="#252525"
+                            MouseDoubleClick="OnAssetDoubleClicked"
+                            SelectionChanged="OnAssetSelected"
+                            ToolTip="双击图片：TLG 自动转 PNG 缓存后用系统查看器打开" />
+                        <!-- 即插即看预览（TLG 自动转入缓存） -->
+                        <Border
+                            Grid.Column="1"
+                            Margin="8,0,0,0"
+                            Padding="10"
+                            CornerRadius="6"
+                            Background="#161616"
+                            BorderBrush="#252525"
+                            BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock
+                                    FontSize="11"
+                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                    Text="预览"
+                                    Margin="0,0,0,6" />
+                                <Border
+                                    Height="220"
+                                    CornerRadius="4"
+                                    Background="#111111">
+                                    <Image
+                                        Stretch="Uniform"
+                                        Source="{Binding PreviewSource}" />
+                                </Border>
+                                <TextBlock
+                                    Margin="0,6,0,0"
+                                    FontSize="11"
+                                    TextWrapping="Wrap"
+                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                    Text="{Binding PreviewText}" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </TabItem>
+                <TabItem Header="音频 (voice / bgm)">
+                    <ListView
+                        ItemsSource="{Binding Audio}"
+                        DisplayMemberPath="RelativePath"
+                        Background="Transparent"
+                        BorderThickness="1"
+                        BorderBrush="#252525"
+                        MouseDoubleClick="OnAssetDoubleClicked"
+                        SelectionChanged="OnAssetSelected"
+                        ToolTip="双击音频：用系统默认播放器打开" />
+                </TabItem>
+            </TabControl>
+
+            <!-- 未初始化态 -->
+            <StackPanel
+                Visibility="{Binding EmptyWorkspaceVisibility}"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center">
+                <ui:SymbolIcon
+                    Symbol="FolderOpen24"
+                    FontSize="42"
+                    Foreground="#77808C"
+                    HorizontalAlignment="Center" />
+                <TextBlock
+                    Margin="0,10,0,0"
+                    FontSize="14"
+                    HorizontalAlignment="Center"
+                    Text="尚未初始化工作区" />
+                <TextBlock
+                    Margin="0,6,0,0"
+                    FontSize="12"
+                    HorizontalAlignment="Center"
+                    TextWrapping="Wrap"
+                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                    Text="请先在剧本工坊拖入游戏根目录（自动识别引擎并初始化 .galpipeline/），解包后此处展示 scripts / images / voice 资产树。" />
+            </StackPanel>
+        </Grid>
+    </Grid>
 </Page>

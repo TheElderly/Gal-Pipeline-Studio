@@ -105,11 +105,17 @@ class TestFullLocalizationLifecycle:
         assert lines[6] == "; 场景尾部注释"
 
     def test_speakers_and_translations_backfilled(self, pipeline):
-        assert pipeline.lines[3] == "【アリス】别哭呀[r]快点说[ruby text=\"はやく\"]"
+        # [r] 与 [ruby] 在原文中紧密相邻（泣くな | [r][ruby] | 早く言って），
+        # 换算到正文坐标系后锚点同为 3，必须连续复写于同一位置。
+        # 早期实现漏扣「排在该宏之前的宏长度」，会把 [ruby] 冲到行尾，
+        # 使注音失去挂载对象 —— 故此处断言的是**相邻性**而非宽松的包含。
+        assert pipeline.lines[3] == "【アリス】别哭呀[r][ruby text=\"はやく\"]快点说"
         assert pipeline.lines[4] == "风很大的一天[p]"
         assert pipeline.lines[5] == "【ボブ】「走吧」他[r]低声说"
 
     def test_inline_macros_preserved_in_place(self, pipeline):
         assert "[r]" in pipeline.lines[3] and '[ruby text="はやく"]' in pipeline.lines[3]
+        # 相邻性断言：两个相邻宏在原文中零间隔，复写后必须仍零间隔（次序不得被冲散）
+        assert '[r][ruby text="はやく"]' in pipeline.lines[3]
         assert "[p]" in pipeline.lines[4]
         assert "[r]" in pipeline.lines[5]

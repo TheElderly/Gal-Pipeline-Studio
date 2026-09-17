@@ -135,6 +135,152 @@
                         Text="刷新经 Python Sidecar 的 fetch_models 方法发起 GET {base}/models；本地环回演练可复用 tests/fixtures/mock_llm_server.py。" />
                 </StackPanel>
             </ui:CardExpander>
+
+            <!-- 外部工具链环境：四级瀑布流探测状态的集中呈现与自定义路径管理 -->
+            <ui:CardExpander Margin="0,16,0,0" Icon="{ui:SymbolIcon Symbol=Wrench24}">
+                <ui:CardExpander.Header>
+                    <StackPanel>
+                        <ui:TextBlock FontTypography="BodyStrong" Text="外部工具链环境 (Toolchain Environment)" />
+                        <ui:TextBlock
+                            FontTypography="Caption"
+                            Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                            TextWrapping="Wrap"
+                            Text="{Binding ToolchainSummary}" />
+                    </StackPanel>
+                </ui:CardExpander.Header>
+                <StackPanel Margin="0,12,0,4">
+                    <ui:Button
+                        HorizontalAlignment="Left"
+                        Appearance="Secondary"
+                        Icon="{ui:SymbolIcon Symbol=ArrowSync24}"
+                        Content="重新探测全部工具"
+                        Command="{Binding ReprobeAllCommand}"
+                        ToolTip="重跑四级瀑布流（自定义路径 → 本地 tools/ → PATH），刷新全部状态徽章" />
+                    <ItemsControl
+                        Margin="0,12,0,0"
+                        ItemsSource="{Binding ToolItems}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border
+                                    Margin="0,0,0,8"
+                                    Padding="12,10"
+                                    CornerRadius="6"
+                                    Background="#1C1C1C"
+                                    BorderBrush="#2A2A2A"
+                                    BorderThickness="1">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+
+                                        <!-- 行 1：名称 + 徽章 + 来源 + 版本 -->
+                                        <StackPanel
+                                            Grid.Row="0"
+                                            Grid.Column="0"
+                                            Orientation="Horizontal">
+                                            <TextBlock
+                                                Text="{Binding DisplayName}"
+                                                FontSize="13"
+                                                FontWeight="SemiBold"
+                                                Foreground="#E8E8E8" />
+                                            <Border
+                                                Margin="8,0,0,0"
+                                                Padding="8,2"
+                                                CornerRadius="8"
+                                                Background="#262626">
+                                                <TextBlock
+                                                    Text="{Binding StatusKindText}"
+                                                    FontSize="11"
+                                                    Foreground="{Binding StatusBrush}" />
+                                            </Border>
+                                            <TextBlock
+                                                Margin="8,0,0,0"
+                                                Text="{Binding VersionText, StringFormat=v{0}}"
+                                                FontSize="11"
+                                                Foreground="#9CA3AF" />
+                                            <TextBlock
+                                                Margin="8,0,0,0"
+                                                Text="{Binding OriginLabel}"
+                                                FontSize="11"
+                                                Foreground="#6E7681"
+                                                ToolTip="命中来源：Custom=自定义路径 / Local=本地 tools/ / PATH=环境变量" />
+                                        </StackPanel>
+
+                                        <!-- 行 1 右侧：动作组 -->
+                                        <StackPanel
+                                            Grid.Row="0"
+                                            Grid.Column="1"
+                                            Orientation="Horizontal">
+                                            <ui:Button
+                                                MinWidth="0"
+                                                Padding="8,3"
+                                                FontSize="11"
+                                                Appearance="Secondary"
+                                                Content="浏览/配置路径"
+                                                Command="{Binding BrowseCommand}"
+                                                ToolTip="选择可执行文件作为该工具的自定义路径（最高探测优先级）" />
+                                            <ui:Button
+                                                Margin="6,0,0,0"
+                                                MinWidth="0"
+                                                Padding="8,3"
+                                                FontSize="11"
+                                                Appearance="Secondary"
+                                                Content="恢复默认"
+                                                IsEnabled="{Binding HasCustomPath}"
+                                                Command="{Binding ResetCommand}"
+                                                ToolTip="清除自定义路径，回退 本地 tools/ → PATH 的自动瀑布探测" />
+                                            <ui:Button
+                                                Margin="6,0,0,0"
+                                                MinWidth="0"
+                                                Padding="8,3"
+                                                FontSize="11"
+                                                Appearance="Secondary"
+                                                Content="打开目录"
+                                                IsEnabled="{Binding IsReady}"
+                                                Command="{Binding OpenDirectoryCommand}"
+                                                ToolTip="在资源管理器中定位当前生效的可执行文件" />
+                                        </StackPanel>
+
+                                        <!-- 行 2：用途描述 -->
+                                        <TextBlock
+                                            Grid.Row="1"
+                                            Grid.Column="0"
+                                            Margin="0,4,0,0"
+                                            Text="{Binding PurposeText}"
+                                            FontSize="11"
+                                            TextWrapping="Wrap"
+                                            Foreground="#8A8F98" />
+
+                                        <!-- 行 3：生效路径 -->
+                                        <TextBlock
+                                            Grid.Row="2"
+                                            Grid.Column="0"
+                                            Margin="0,4,0,0"
+                                            FontFamily="Consolas"
+                                            FontSize="11"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTip="{Binding ResolvedPath}"
+                                            Foreground="#77808C"
+                                            Text="{Binding ResolvedPath}" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ui:TextBlock
+                        Margin="0,4,0,0"
+                        FontTypography="Caption"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        TextWrapping="Wrap"
+                        Text="探测优先级：自定义路径 → 程序目录 tools/{tool}/ → 系统 PATH。改完路径即刻生效（转码/解包/TLG 转换在下一次调用时消费最新状态）。" />
+                </StackPanel>
+            </ui:CardExpander>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

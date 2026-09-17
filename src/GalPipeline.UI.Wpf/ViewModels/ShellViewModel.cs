@@ -17,13 +17,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private PythonSidecarClient? _client;
 
     [ObservableProperty]
-    public partial string SidecarStatusText { get; set; } = "正在连接 Python 核心…";
+    public partial string SidecarStatusText { get; set; } = "Sidecar Engine: Connecting…";
 
     [ObservableProperty]
     public partial Brush SidecarStatusBrush { get; set; } = PendingBrush;
-
-    [ObservableProperty]
-    public partial string TokenUsageText { get; set; } = "Token 消耗：0（本次会话）";
 
     [ObservableProperty]
     public partial string StudioFileLabel { get; set; } = string.Empty;
@@ -31,11 +28,19 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial string StudioMetricsLabel { get; set; } = string.Empty;
 
-    /// <summary>接收 Studio 侧通报（文件行数 / Token / Latency），汇入主窗底栏。</summary>
-    public void PublishStudioMetrics(string fileLabel, string metrics)
+    /// <summary>内容区说明条的实时文案：空闲时回落为设计稿原文，有动作时显示 Studio 侧状态。</summary>
+    [ObservableProperty]
+    public partial string StudioStatusLabel { get; set; } = IdleHint;
+
+    /// <summary>设计稿规定的内容区说明条原文（空闲态，保证静置时版面与设计稿一致）。</summary>
+    public const string IdleHint = "Virtualized - DataGrid : compact ergonomics, macro protection";
+
+    /// <summary>接收 Studio 侧通报（文件行数 / Token 与延迟 / 状态文案），汇入主窗底栏与说明条。</summary>
+    public void PublishStudioMetrics(string fileLabel, string metrics, string status)
     {
         StudioFileLabel = fileLabel;
         StudioMetricsLabel = metrics;
+        StudioStatusLabel = string.IsNullOrWhiteSpace(status) ? IdleHint : status;
     }
 
     [ObservableProperty]
@@ -49,19 +54,13 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             _client = new PythonSidecarClient();
             await _client.PingAsync();
             SidecarStatusBrush = ReadyBrush;
-            SidecarStatusText = "Python 核心就绪";
+            SidecarStatusText = "Sidecar Engine: Ready";
         }
         catch (Exception ex)
         {
             SidecarStatusBrush = FaultBrush;
-            SidecarStatusText = $"Python 核心连接失败：{ex.Message}";
+            SidecarStatusText = $"Sidecar Engine: Fault — {ex.Message}";
         }
-    }
-
-    /// <summary>Token 用量由翻译批次回传后累计（阶段三后续切片接通，现为占位）。</summary>
-    public void ReportTokenUsage(int promptTokens, int completionTokens)
-    {
-        TokenUsageText = $"Token 消耗：{promptTokens + completionTokens}（本次会话）";
     }
 
     public void Dispose()
